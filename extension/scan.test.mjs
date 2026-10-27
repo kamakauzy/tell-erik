@@ -1,0 +1,58 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { assessVersion, buildHeadline, classifyHandler, extractVersions, summarize } from "./scan.js";
+
+const PAGE = `<!doctype html><html><head>
+<link rel="stylesheet" href="https://cdn.example.com/docs.css?v=2024.2.514" />
+<link class="Telerik_stylesheet" href="https://d35islomi5rx1v.cloudfront.net/ajaxz/2026.3.812/Grid.css" />
+<!-- 2018.2.710.45 -->
+</head><body>
+<script src="/app/Telerik.Web.UI.WebResource.axd?d=abc&t=1"></script>
+</body></html>`;
+
+test("reads the comment, the gzip CDN path, and ignores a cache-buster", () => {
+  const hits = extractVersions(PAGE, "https://app.example/page.aspx");
+  const versions = hits.map((hit) => `${hit.product}:${hit.version}:${hit.method}`).sort();
+  assert.deepEqual(versions, ["aspnet-ajax:2018.2.710.45:html-comment", "aspnet-ajax:2026.3.812:ajax-cdn"]);
+});
+
+test("recognizes the RAU registration string", () => {
+  const row = classifyHandler(
+    "rau",
+    200,
+    '{ "message" : "RadAsyncUpload handler is registered succesfully, however, it may not be accessed directly." }',
+  );
+  assert.equal(row.state, "present");
+  assert.equal(classifyHandler("dialog", 200, "<title>HandlerCheckOK</title>").state, "present");
+});
+
+test("prefers the 4-part comment over the 3-part CDN of the same build", () => {
+  const headline = buildHeadline([
+    { version: "2019.2.514.45", product: "aspnet-ajax", method: "html-comment", source: "p", evidence: "c" },
+    { version: "2019.2.514", product: "aspnet-ajax", method: "ajax-cdn", source: "p", evidence: "d" },
+  ]);
+  assert.equal(headline.conflict, false);
+  assert.equal(headline.version, "2019.2.514.45");
+});
+
+test("places 2026.3.812 at or above the tracked fixed builds", () => {
+  const rows = assessVersion("2026.3.812", "aspnet-ajax");
+  assert.ok(rows.every((row) => row.status === "above-fix"));
+});
+
+test("summarizes a page payload and a live kendo.version", () => {
+  const result = summarize({
+    pageUrl: "https://app.example/orders/default.aspx",
+    html: PAGE,
+    liveHtml: "",
+    kendoVersion: "2021.1.119",
+    server: "Microsoft-IIS/10.0",
+    handlers: [
+      { id: "rau", name: "RadAsyncUpload", status: 200, body: "RadAsyncUpload handler is registered succesfully.", offHost: false, finalUrl: "https://app.example/Telerik.Web.UI.WebResource.axd?type=rau" },
+      { id: "dialog", name: "DialogHandler", status: 200, body: "HandlerCheckOK", offHost: false, finalUrl: "https://app.example/Telerik.Web.UI.DialogHandler.aspx?checkHandler=true" },
+    ],
+  });
+  assert.equal(result.headline.version, "2018.2.710.45");
+  assert.equal(result.handlers.filter((row) => row.state === "present").length, 2);
+  assert.ok(result.versions.some((hit) => hit.version === "2021.1.119" && hit.method === "script-banner"));
+});

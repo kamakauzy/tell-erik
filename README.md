@@ -24,6 +24,12 @@ Other flags: `--list`, `--proxy`, `--timeout`, `--insecure`, `--scanner-ua`, `--
 
 Exit 0 when a version or a handler is present, 2 on a clean miss, 1 on error.
 
+## Extension
+
+Chrome or Edge. On the extensions page, turn on developer mode, choose Load unpacked, and select the `extension/` folder. Open the app, then click the icon. The read uses that tab's session.
+
+The grant is the click. Permissions are `activeTab` and `scripting`.
+
 ## Encryption
 
 `Telerik.ScriptManager.EnableHandlerEncryption` drops the HTML comment and encrypts `WebResource.axd`. The build is then in the CDN path, or on a page that still prints the comment. A skin served from the app keeps the version off the HTML. Handlers can still answer.
