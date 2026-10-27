@@ -349,6 +349,56 @@ def confirm_asset(target: dict, status: int, content_type: str, body: str) -> di
     return verdict
 
 
+def version_file_urls(page_url: str, html: str) -> List[str]:
+    origin = urllib.parse.urlsplit(page_url)
+    origin_key = (origin.scheme, origin.netloc)
+    urls = []
+    seen = set()
+    for match in ATTR_URL_RE.finditer(html):
+        value = match.group(1).replace("&", "&")
+        if re.match(r"^(data|javascript|mailto):", value, re.I):
+            continue
+        absolute = urllib.parse.urljoin(page_url, value)
+        split = urllib.parse.urlsplit(absolute)
+        host = (split.hostname or "").lower()
+        if (split.scheme, split.netloc) != origin_key or host in ASSET_HOSTS:
+            continue
+        blob = ("%s %s" % (split.path, split.query)).lower()
+        if not re.search(r"telerik|kendo|webresource\.axd|scriptresource\.axd|dialoghandler", blob):
+            continue
+        href = urllib.parse.urlunsplit((split.scheme, split.netloc, split.path, split.query, ""))
+        if href in seen or href == page_url:
+            continue
+        seen.add(href)
+        urls.append(href)
+        if len(urls) >= 5:
+            break
+    return urls
+
+
+def login_note(page_url: str, body: str) -> Optional[str]:
+    path = urllib.parse.urlsplit(page_url).path.lower()
+    path_login = re.search(r"/(login|logon|signin|sign-in)(/|\.|$)", path) is not None
+    password = re.search(r"""type=["']password["']""", body, re.I) is not None
+    if not path_login and not password:
+        return None
+    suite = re.search(r"Telerik\.Web\.UI|RadScriptManager|RadGrid|RadAjax|kendo", body, re.I) is not None
+    if suite:
+        return "This response is a login form. The suite is referenced on the page."
+    return "This response is a login form. The application session is not on this read."
+
+
+def apply_presence(headline: dict, signals: Sequence[str], handlers: Sequence[dict]) -> dict:
+    if headline.get("version"):
+        return headline
+    headline = dict(headline)
+    if signals:
+        headline["summary"] = "Version unread. The page references the suite."
+    elif any(row.get("state") == "present" for row in handlers):
+        headline["summary"] = "Version unread. A handler answered."
+    return headline
+
+
 def file_banner_hits(verdicts: Sequence[dict]) -> List[dict]:
     hits = []
     for verdict in verdicts:
@@ -914,6 +964,14 @@ def scan_one(args, url: str) -> dict:
             requests.append({"url": target["url"], "status": status, "purpose": "asset"})
             verdicts.append(confirm_asset(target, status, content_type, asset_body))
         versions.extend(file_banner_hits(verdicts))
+        wall = login_note(page.final_url, page.body)
+        if wall:
+            notes.append(wall)
+        for file_url in version_file_urls(page.final_url, page.body):
+            got = fetch_same_origin(opener, file_url, "GET", None, headers, jar, locked, timeout)
+            requests.append({"url": file_url, "status": got.status, "purpose": "script"})
+            versions.extend(extract_versions(got.body, got.final_url))
+            signals.extend(markup_signals(got.body))
         referenced = referenced_bases(page.final_url if not page.off_host else url, page.body)
         parents = directory_bases(page.final_url if not page.off_host else url, not args.no_walk)
         bases = []
@@ -949,8 +1007,8 @@ def scan_one(args, url: str) -> dict:
                 handlers.append(
                     {"id": handler_id, "name": name, "url": got.final_url, "status": got.status, "state": state, "detail": detail}
                 )
-        headline = build_headline(versions, verdicts)
         chosen = prefer_handlers(handlers)
+        headline = apply_presence(build_headline(versions, verdicts), signals, chosen)
         notes.extend(build_notes(headline, chosen, signals))
         compared = comparison_target(headline)
         elapsed = int((time.time() - started) * 1000)
@@ -975,7 +1033,10 @@ def scan_one(args, url: str) -> dict:
     except urllib.error.URLError as exc:
         reason = exc.reason
         text = str(reason)
-        if isinstance(reason, ssl.SSLError) or "CERTIFICATE" in text.upper():
+        if isinstance(reason, (TimeoutError, socket.timeout)) or "timed out" in text.lower():
+            host = urllib.parse.urlsplit(url).hostname or url
+            message = "The connection to %s timed out before a page was read." % host
+        elif isinstance(reason, ssl.SSLError) or "CERTIFICATE" in text.upper():
             message = "TLS verification failed. Re-run with --insecure only if you trust this host. (%s)" % text
         else:
             message = "The request failed before a version could be read. (%s)" % text
@@ -983,7 +1044,7 @@ def scan_one(args, url: str) -> dict:
     except (TimeoutError, socket.timeout) as exc:
         return {
             "ok": False,
-            "error": "The request timed out before a version could be read. (%s)" % exc,
+            "error": "The connection timed out before a page was read. (%s)" % exc,
             "target": url,
             "elapsedMs": int((time.time() - started) * 1000),
         }

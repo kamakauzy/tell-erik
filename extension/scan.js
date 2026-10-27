@@ -465,14 +465,27 @@ export function summarize(payload) {
     const classified = classifyHandler(row.id, row.status, row.body || "");
     return { id: row.id, name: row.name, url: row.finalUrl || row.url, status: row.status, ...classified };
   });
-  const headline = buildHeadline(versions, verdicts);
+  let headline = buildHeadline(versions, verdicts);
+  if (!headline.version && signals.length) headline = { ...headline, summary: "Version unread. The page references the suite." };
+  else if (!headline.version && handlers.some((row) => row.state === "present")) {
+    headline = { ...headline, summary: "Version unread. A handler answered." };
+  }
   const compared = comparisonTarget(headline);
+  const notes = buildNotes(headline, handlers, signals);
+  if (payload.login) {
+    const suite = signals.length > 0;
+    notes.unshift(
+      suite
+        ? "This response is a login form. The suite is referenced on the page."
+        : "This response is a login form. The application session is not on this read.",
+    );
+  }
   return {
     headline,
     advisories: compared ? assessVersion(compared.version, compared.product) : [],
     handlers,
     signals,
-    notes: buildNotes(headline, handlers, signals),
+    notes,
     versions,
     server: payload.server || "",
     aspNet: payload.aspNet || "",

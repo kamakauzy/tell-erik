@@ -78,7 +78,7 @@ globalThis.__tellErikCollect = async function tellErikCollect() {
     const seen = new Set();
     const re = /(?:src|href)\s*=\s*["']([^"']*(?:Telerik\.Web\.UI\.WebResource\.axd|Telerik\.Web\.UI\.DialogHandler\.aspx)[^"']*)["']/gi;
     for (const match of String(html || "").matchAll(re)) {
-      const raw = (match[1] || "").replace(/&/g, "&");
+      const raw = (match[1] || "").replace(/\u0026amp;/g, "&");
       let resolved;
       try {
         resolved = new URL(raw, pageUrl);
@@ -111,6 +111,30 @@ globalThis.__tellErikCollect = async function tellErikCollect() {
 
   const html = page.body || "";
   const combined = `${html}\n${liveHtml}`;
+  const fileUrls = [];
+  const seenFiles = new Set();
+  for (const match of combined.matchAll(/(?:src|href)\s*=\s*["']([^"']+)["']/gi)) {
+    const raw = (match[1] || "").replace(/&/g, "&");
+    if (!raw || /^(data|javascript|mailto):/i.test(raw)) continue;
+    let fileUrl;
+    try { fileUrl = new URL(raw, pageUrl); } catch { continue; }
+    if (fileUrl.origin !== origin) continue;
+    const blob = `${fileUrl.pathname} ${fileUrl.search}`.toLowerCase();
+    if (!/telerik|kendo|webresource\.axd|scriptresource\.axd|dialoghandler/.test(blob)) continue;
+    fileUrl.hash = "";
+    const href = fileUrl.href;
+    if (seenFiles.has(href) || href === pageUrl) continue;
+    seenFiles.add(href);
+    fileUrls.push(href);
+    if (fileUrls.length >= 5) break;
+  }
+  for (const href of fileUrls) {
+    const got = await grab(href);
+    if (got.body) liveHtml += `\n${got.body.slice(0, 200000)}`;
+  }
+  const loginBody = `${html}\n${liveHtml}`;
+  const loginPath = new URL(page.finalUrl || pageUrl).pathname.toLowerCase();
+  const login = /\/(login|logon|signin|sign-in)(\/|\.|$)/.test(loginPath) || /type=["']password["']/i.test(loginBody);
   const bases = [];
   const seen = new Set();
   for (const base of [...referencedBases(combined), ...directoryBases(page.finalUrl || pageUrl)]) {
@@ -152,5 +176,6 @@ globalThis.__tellErikCollect = async function tellErikCollect() {
     server: page.server,
     aspNet: page.aspNet,
     handlers: rows,
+    login,
   };
 };
