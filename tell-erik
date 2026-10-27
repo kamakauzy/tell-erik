@@ -1669,7 +1669,6 @@ def scan_one(args, url: str) -> dict:
         chosen = prefer_handlers(handlers)
         headline = apply_presence(build_headline(versions, verdicts), signals, chosen)
         notes.extend(build_notes(headline, chosen, signals))
-        compared = comparison_target(headline)
         advisories = []
         best = {}
         for hit in versions:
@@ -1685,12 +1684,7 @@ def scan_one(args, url: str) -> dict:
                 best[hit["product"]] = hit
         for hit in best.values():
             advisories.extend(assess_version(hit["version"], hit["product"], chosen))
-        ajax_known = any(hit["product"] == "aspnet-ajax" for hit in versions)
-        ajax_handlers = any(row["id"] in ("rau", "dialog") and row["state"] == "present" for row in chosen)
-        if not ajax_known and ajax_handlers and (not compared or compared["product"] != "aspnet-ajax"):
-            advisories.extend(unplaced_advisories("aspnet-ajax", chosen))
-        order = {"in-range": 0, "transitional": 1, "unplaced": 2, "outside": 3, "above-fix": 4}
-        advisories.sort(key=lambda row: order.get(row["status"], 9))
+        advisories = [row for row in advisories if row["status"] == "in-range"]
         elapsed = int((time.time() - started) * 1000)
         return {
             "ok": True,

@@ -641,7 +641,6 @@ export function summarize(payload) {
   else if (!headline.version && handlers.some((row) => row.state === "present")) {
     headline = { ...headline, summary: "Version unread. A handler answered." };
   }
-  const compared = comparisonTarget(headline);
   const best = new Map();
   for (const hit of versions) {
     const confirmed = verdicts.some((verdict) => verdict.version === hit.version && verdict.product === hit.product && verdict.state === "confirmed");
@@ -652,10 +651,7 @@ export function summarize(payload) {
   }
   const advisories = [];
   for (const hit of best.values()) advisories.push(...assessVersion(hit.version, hit.product, handlers));
-  const ajaxKnown = versions.some((hit) => hit.product === "aspnet-ajax");
-  const ajaxHandlers = handlers.some((row) => (row.id === "rau" || row.id === "dialog") && row.state === "present");
-  if (!ajaxKnown && ajaxHandlers && compared?.product !== "aspnet-ajax") advisories.push(...unplacedAdvisories("aspnet-ajax", handlers));
-  advisories.sort((left, right) => ({ "in-range": 0, transitional: 1, unplaced: 2, outside: 3, "above-fix": 4 })[left.status] - ({ "in-range": 0, transitional: 1, unplaced: 2, outside: 3, "above-fix": 4 })[right.status]);
+  const applicable = advisories.filter((row) => row.status === "in-range");
   const notes = buildNotes(headline, handlers, signals);
   if (payload.login) {
     const suite = signals.length > 0;
@@ -667,7 +663,7 @@ export function summarize(payload) {
   }
   return {
     headline,
-    advisories,
+    advisories: applicable,
     handlers,
     signals,
     notes,

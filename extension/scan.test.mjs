@@ -103,6 +103,31 @@ test("summarizes a page payload and a live kendo.version", () => {
   assert.ok(result.versions.some((hit) => hit.version === "2021.1.119" && hit.method === "script-banner"));
 });
 
+test("lists only ranges that include the build that was read", () => {
+  const jqueryOnly = summarize({
+    pageUrl: "https://app.example/",
+    html: "<html></html>",
+    liveHtml: "",
+    jqueryVersion: "3.5.1",
+    handlers: [
+      { id: "rau", name: "RadAsyncUpload", status: 200, body: "RadAsyncUpload handler is registered succesfully.", offHost: false, finalUrl: "https://app.example/rau" },
+      { id: "dialog", name: "DialogHandler", status: 200, body: "HandlerCheckOK", offHost: false, finalUrl: "https://app.example/dialog" },
+    ],
+  });
+  assert.equal(jqueryOnly.headline.product, "jquery");
+  assert.equal(jqueryOnly.advisories.length, 0);
+  const kendo = summarize({
+    pageUrl: "https://app.example/",
+    html: "<html></html>",
+    liveHtml: "",
+    kendoVersion: "2020.2.617",
+    handlers: [],
+  });
+  assert.ok(kendo.advisories.length > 0);
+  assert.ok(kendo.advisories.every((row) => row.status === "in-range"));
+  assert.ok(kendo.advisories.every((row) => !row.id.startsWith("CVE-2017") && !row.id.startsWith("CVE-2019-18935")));
+});
+
 test("a higher definition version replaces the packed catalog", () => {
   const packed = currentDefinitions().version;
   assert.equal(applyDefinitions({ version: packed - 1, advisories: [{ id: "CVE-1", title: "x", product: "kendo", fixed: "2099.1.100", detail: "" }], handlers: [{ id: "rau", path: "x" }] }), false);
