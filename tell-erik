@@ -1,0 +1,922 @@
+#!/usr/bin/env python3
+"""tell-erik: remote Telerik UI version enumerator.
+
+Reads the product build from rendered markup (HTML version comment, AJAX CDN
+path, assembly or resource query strings, Kendo CDN and script banners) and
+confirms handlers with GET fingerprints.
+
+Python 3.9+. Standard library only.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import socket
+import ssl
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import Dict, List, Optional, Sequence, Tuple
+
+BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+SCANNER_UA = "tell-erik/1.0 (authorized assessment)"
+MAX_BODY = 1_200_000
+METADATA_HOSTS = {
+    "metadata.google.internal",
+    "metadata.google.com",
+    "metadata",
+    "instance-data",
+    "instance-data.ec2.internal",
+}
+HANDLERS = [
+    ("rau", "RadAsyncUpload", "Telerik.Web.UI.WebResource.axd?type=rau"),
+    ("dialog", "DialogHandler", "Telerik.Web.UI.DialogHandler.aspx?checkHandler=true"),
+    ("spell", "SpellCheckHandler", "Telerik.Web.UI.SpellCheckHandler.axd"),
+    ("iec", "ImageEditor cache", "Telerik.Web.UI.WebResource.axd?type=iec"),
+    ("chart", "ChartImage", "ChartImage.axd"),
+    ("report", "ReportViewer", "Telerik.ReportViewer.axd"),
+]
+ADVISORIES = [
+    {
+        "id": "CVE-2017-9248",
+        "title": "DialogHandler cryptographic weakness",
+        "floor": None,
+        "ceiling": None,
+        "fixed": "2017.2.621",
+        "detail": "Builds before 2017.2.621. Confirm the key in use separately.",
+    },
+    {
+        "id": "CVE-2019-18935",
+        "title": "RadAsyncUpload deserialization",
+        "floor": None,
+        "ceiling": "2019.3.1023",
+        "fixed": "2020.1.114",
+        "detail": "Through 2019.3.1023. 2020.1.114 blocks the default path. Known encryption material changes the picture.",
+    },
+    {
+        "id": "CVE-2025-3600",
+        "title": "Image editor unsafe reflection",
+        "floor": "2011.2.712",
+        "ceiling": "2025.1.218",
+        "fixed": "2025.1.416",
+        "detail": "2011.2.712 through 2025.1.218. Fixed in 2025.1.416.",
+    },
+    {
+        "id": "CVE-2026-13181",
+        "title": "RadAsyncUpload cryptographic chain",
+        "floor": "2010.1.309",
+        "ceiling": "2026.2.519",
+        "fixed": "2026.2.708",
+        "detail": "Through 2026.2.519. Fixed in 2026.2.708. Requires a non-default encryption key.",
+    },
+    {
+        "id": "CVE-2026-18672",
+        "title": "Image editor file read",
+        "floor": "2011.2.712",
+        "ceiling": "2026.2.708",
+        "fixed": "2026.3.812",
+        "detail": "2011.2.712 through 2026.2.708 inclusive. Fixed in 2026.3.812. Requires a static machineKey or dialog key.",
+    },
+]
+
+COMMENT_RE = re.compile(r"<!--\s*(20\d{2}\.[1-4]\.\d{3,4}(?:\.\d{2,4})?)\s*-->")
+AJAX_HOST_RE = re.compile(
+    r"https?://d35islomi5rx1v\.cloudfront\.net/ajaxz?/(20\d{2}\.[1-4]\.\d{3,4})(?:\.\d{2,4})?/",
+    re.I,
+)
+LINK_RE = re.compile(r"<link\b[^>]*>", re.I)
+AJAX_PATH_RE = re.compile(r"/ajaxz?/(20\d{2}\.[1-4]\.\d{3,4})(?:\.\d{2,4})?/", re.I)
+KENDO_CDN_RE = re.compile(
+    r"https?://(?:kendo\.cdn\.telerik\.com|cdn\.kendostatic\.com)/(20\d{2}\.[1-4]\.\d{3,4})/",
+    re.I,
+)
+ASSEMBLY_RE = re.compile(
+    r"Telerik\.(Web\.UI|Reporting)(?:%2[cC]|,)(?:\+|%20|\s)*Version(?:=|%3[dD])(\d+\.\d+\.\d+(?:\.\d+)?)",
+    re.I,
+)
+KENDO_BANNER_RE = re.compile(r"Kendo UI(?:\s+\w+){0,3}?\s+v(20\d{2}\.[1-4]\.\d{3,4})", re.I)
+KENDO_ASSIGN_RE = re.compile(r"""kendo\.version\s*=\s*["'](20\d{2}\.[1-4]\.\d{3,4})""", re.I)
+REF_RE = re.compile(
+    r"""(?:src|href)\s*=\s*["']([^"']*(?:Telerik\.Web\.UI\.WebResource\.axd|Telerik\.Web\.UI\.DialogHandler\.aspx)[^"']*)["']""",
+    re.I,
+)
+
+
+def parse_version(raw: str) -> Optional[Tuple[int, int, int]]:
+    match = re.match(r"^(\d{4})\.(\d+)\.(\d+)", raw.strip())
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
+
+
+def product_key(version: str) -> Optional[str]:
+    parsed = parse_version(version)
+    if not parsed:
+        return None
+    return "%d.%d.%d" % parsed
+
+
+def compare_product(left: str, right: str) -> int:
+    a = parse_version(left)
+    b = parse_version(right)
+    if not a or not b:
+        return 0
+    return (a > b) - (a < b)
+
+
+def clip(value: str, limit: int = 160) -> str:
+    flat = re.sub(r"\s+", " ", value).strip()
+    if len(flat) <= limit:
+        return flat
+    return flat[: limit - 1] + "…"
+
+
+def extract_versions(body: str, source: str) -> List[dict]:
+    hits: List[dict] = []
+    seen = set()
+
+    def push(version: str, product: str, method: str, evidence: str) -> None:
+        key = (product, version, method, source)
+        if key in seen:
+            return
+        seen.add(key)
+        hits.append(
+            {
+                "version": version,
+                "product": product,
+                "method": method,
+                "source": source,
+                "evidence": clip(evidence),
+            }
+        )
+
+    for match in COMMENT_RE.finditer(body):
+        push(match.group(1), "aspnet-ajax", "html-comment", match.group(0))
+    for match in AJAX_HOST_RE.finditer(body):
+        push(match.group(1), "aspnet-ajax", "ajax-cdn", match.group(0))
+    for tag in LINK_RE.finditer(body):
+        text = tag.group(0)
+        if not re.search(r"Telerik_stylesheet", text, re.I):
+            continue
+        found = AJAX_PATH_RE.search(text)
+        if found:
+            push(found.group(1), "aspnet-ajax", "ajax-cdn", text)
+    for match in KENDO_CDN_RE.finditer(body):
+        push(match.group(1), "kendo", "kendo-cdn", match.group(0))
+    for match in ASSEMBLY_RE.finditer(body):
+        kind = match.group(1).lower()
+        product = "aspnet-ajax" if kind.startswith("web.ui") else "reporting"
+        method = "resource-query" if "%" in match.group(0) else "assembly"
+        push(match.group(2), product, method, match.group(0))
+    for match in KENDO_BANNER_RE.finditer(body):
+        push(match.group(1), "kendo", "script-banner", match.group(0))
+    for match in KENDO_ASSIGN_RE.finditer(body):
+        push(match.group(1), "kendo", "script-banner", match.group(0))
+    return hits
+
+
+def markup_signals(body: str) -> List[str]:
+    signals = []
+    if re.search(r"Telerik\.Web\.UI\.WebResource\.axd", body, re.I):
+        if re.search(r"[?&]d=", body, re.I):
+            signals.append("Page references Telerik.Web.UI.WebResource.axd with an encrypted d parameter.")
+        else:
+            signals.append("Page references Telerik.Web.UI.WebResource.axd.")
+    if re.search(r"Telerik\.Web\.UI\.DialogHandler\.aspx", body, re.I):
+        signals.append("Page references DialogHandler.aspx.")
+    if re.search(r"Telerik_stylesheet", body, re.I):
+        signals.append("Page emits Telerik_stylesheet links.")
+    if re.search(r"RadScriptManager", body, re.I):
+        signals.append("Page includes RadScriptManager.")
+    if re.search(r"kendo\.cdn\.telerik\.com|cdn\.kendostatic\.com", body, re.I):
+        signals.append("Page references a Kendo CDN host.")
+    return signals
+
+
+def classify_handler(handler_id: str, status: int, body: str) -> Tuple[str, str]:
+    if handler_id == "rau" and re.search(r"RadAsyncUpload handler is registered succes+fully", body, re.I):
+        return "present", "Registration message, including the vendor spelling."
+    if handler_id == "dialog" and re.search(r"HandlerCheckOK", body, re.I):
+        return "present", "HandlerCheckOK"
+    if handler_id == "report" and status == 200 and len(body) < 20000 and re.search(
+        r"Telerik\.ReportViewer|ReportViewerHandler", body, re.I
+    ):
+        return "present", "Report viewer marker"
+    if status in (404, 410):
+        return "absent", "Not found"
+    if status in (401, 403):
+        return "unknown", "HTTP %d" % status
+    if status == 0:
+        return "unknown", "No response"
+    return "unknown", "HTTP %d, no fingerprint" % status
+
+
+METHOD_RANK = {
+    "html-comment": 0,
+    "ajax-cdn": 1,
+    "assembly": 2,
+    "resource-query": 3,
+    "kendo-cdn": 4,
+    "script-banner": 5,
+}
+PRODUCT_RANK = {"aspnet-ajax": 0, "reporting": 1, "kendo": 2}
+PRODUCT_LABEL = {
+    "aspnet-ajax": "Telerik UI for ASP.NET AJAX",
+    "kendo": "Kendo UI",
+    "reporting": "Telerik Reporting",
+}
+METHOD_LABEL = {
+    "html-comment": "HTML comment",
+    "ajax-cdn": "AJAX CDN path",
+    "assembly": "Assembly string",
+    "resource-query": "Resource query",
+    "kendo-cdn": "Kendo CDN path",
+    "script-banner": "Script banner",
+}
+
+
+def build_headline(hits: Sequence[dict]) -> dict:
+    if not hits:
+        return {
+            "version": None,
+            "product": None,
+            "productKey": None,
+            "method": None,
+            "conflict": False,
+            "alternates": [],
+            "summary": "Version unread.",
+        }
+    ajax = [hit for hit in hits if hit["product"] == "aspnet-ajax"]
+    pool = ajax or list(hits)
+    keys = []
+    for hit in pool:
+        key = product_key(hit["version"])
+        if key and key not in keys:
+            keys.append(key)
+    ranked = sorted(pool, key=lambda hit: (PRODUCT_RANK.get(hit["product"], 9), METHOD_RANK.get(hit["method"], 9)))
+    primary = product_key(ranked[0]["version"]) if ranked else (keys[0] if keys else None)
+    same = [hit for hit in ranked if product_key(hit["version"]) == primary]
+    detailed = next((hit for hit in same if hit["version"].count(".") >= 3), same[0] if same else ranked[0])
+    conflict = len(keys) > 1
+    alternates = [key for key in keys if key != primary]
+    label = PRODUCT_LABEL.get(detailed["product"], "Telerik")
+    if conflict:
+        summary = "Conflicting %s builds: %s." % (label, ", ".join(keys))
+    elif detailed["method"] == "ajax-cdn":
+        summary = "%s %s, read from the AJAX CDN path." % (label, detailed["version"])
+    elif detailed["method"] == "html-comment":
+        summary = "%s %s, read from the HTML version comment." % (label, detailed["version"])
+    else:
+        summary = "%s %s, read from %s." % (label, detailed["version"], METHOD_LABEL.get(detailed["method"], detailed["method"]).lower())
+    return {
+        "version": detailed["version"],
+        "product": detailed["product"],
+        "productKey": primary,
+        "method": detailed["method"],
+        "conflict": conflict,
+        "alternates": alternates,
+        "summary": summary,
+    }
+
+
+def assess_version(version: Optional[str], product: Optional[str]) -> List[dict]:
+    if not version or product != "aspnet-ajax":
+        return []
+    rows = []
+    for advisory in ADVISORIES:
+        if compare_product(version, advisory["fixed"]) >= 0:
+            status = "above-fix"
+        elif advisory["floor"] and compare_product(version, advisory["floor"]) < 0:
+            status = "outside"
+        elif advisory["ceiling"] and compare_product(version, advisory["ceiling"]) <= 0:
+            status = "in-range"
+        elif advisory["ceiling"] and compare_product(version, advisory["ceiling"]) > 0:
+            status = "transitional"
+        else:
+            status = "in-range"
+        rows.append(
+            {
+                "id": advisory["id"],
+                "title": advisory["title"],
+                "status": status,
+                "detail": advisory["detail"],
+            }
+        )
+    return rows
+
+
+def build_notes(headline: dict, handlers: Sequence[dict], signals: Sequence[str]) -> List[str]:
+    notes = []
+    rau = next((row for row in handlers if row["id"] == "rau"), None)
+    present = any(row["state"] == "present" for row in handlers)
+    if rau and rau["state"] == "present":
+        notes.append(
+            "RadAsyncUpload answered GET. The registration string uses the vendor spelling “succesfully”."
+        )
+    if not headline.get("version") and present:
+        notes.append(
+            "Handler answered. EnableHandlerEncryption encrypts WebResource URLs and drops the version comment. "
+            "The build is on the CDN path, or on a page that still prints the comment."
+        )
+    if any(row["detail"] in ("HTTP 401", "HTTP 403") for row in handlers):
+        notes.append("A path returned 401 or 403. Pass the application cookie or a form login and run again.")
+    if headline.get("conflict"):
+        notes.append("More than one product build appeared. A shared layout can load a CDN build beside the bin assembly.")
+    if headline.get("method") == "ajax-cdn":
+        notes.append("The CDN path omits the assembly framework suffix (.40, .45, .462). The product build is the first three numbers.")
+    if any("encrypted d parameter" in signal for signal in signals) and headline.get("method") != "html-comment":
+        notes.append("WebResource.axd carries an encrypted query. The suite is on the page.")
+    if not headline.get("version") and not present and not signals:
+        notes.append("Clean miss on the probed paths.")
+    return notes
+
+
+def directory_bases(page_url: str, walk: bool) -> List[str]:
+    parts = urllib.parse.urlsplit(page_url)
+    path = parts.path or "/"
+    if not path.endswith("/"):
+        path = path[: path.rfind("/") + 1] or "/"
+    bases = []
+    seen = set()
+    limit = 6 if walk else 1
+    while len(bases) < limit:
+        base = "%s://%s%s" % (parts.scheme, parts.netloc, path)
+        if base not in seen:
+            seen.add(base)
+            bases.append(base)
+        if not walk or path == "/":
+            break
+        trimmed = path[:-1]
+        slash = trimmed.rfind("/")
+        path = "/" if slash <= 0 else trimmed[: slash + 1]
+    return bases
+
+
+def referenced_bases(page_url: str, html: str) -> List[str]:
+    bases = []
+    seen = set()
+    origin = urllib.parse.urlsplit(page_url)
+    origin_key = (origin.scheme, origin.netloc)
+    for match in REF_RE.finditer(html):
+        raw = match.group(1).replace("&amp;", "&")
+        resolved = urllib.parse.urljoin(page_url, raw)
+        split = urllib.parse.urlsplit(resolved)
+        if (split.scheme, split.netloc) != origin_key:
+            continue
+        path = split.path[: split.path.rfind("/") + 1] or "/"
+        base = "%s://%s%s" % (split.scheme, split.netloc, path)
+        if base not in seen:
+            seen.add(base)
+            bases.append(base)
+    return bases
+
+
+def ipv4_to_int(ip: str) -> Optional[int]:
+    parts = ip.split(".")
+    if len(parts) != 4:
+        return None
+    value = 0
+    for part in parts:
+        if not part.isdigit():
+            return None
+        number = int(part)
+        if number > 255:
+            return None
+        value = value * 256 + number
+    return value
+
+
+def is_blocked_ip(ip: str, block_loopback: bool) -> bool:
+    host = ip.lower().strip("[]")
+    if host == "fd00:ec2::254":
+        return True
+    if block_loopback and host in ("::1", "0:0:0:0:0:0:0:1"):
+        return True
+    if ":" in host:
+        return host.startswith("fe80:")
+    if host == "100.100.100.200":
+        return True
+    addr = ipv4_to_int(host)
+    if addr is None:
+        return False
+
+    def cidr(base: str, bits: int) -> bool:
+        network = ipv4_to_int(base)
+        if network is None:
+            return False
+        mask = 0 if bits == 0 else ((~0 << (32 - bits)) & 0xFFFFFFFF)
+        return (addr & mask) == (network & mask)
+
+    if cidr("169.254.0.0", 16) or cidr("0.0.0.0", 8):
+        return True
+    if block_loopback and cidr("127.0.0.0", 8):
+        return True
+    return False
+
+
+def check_url(raw: str, block_loopback: bool) -> urllib.parse.SplitResult:
+    split = urllib.parse.urlsplit(raw.strip())
+    if split.scheme not in ("http", "https") or not split.netloc:
+        raise ValueError("Target must be an http or https URL.")
+    if split.username or split.password:
+        raise ValueError("Put credentials in the auth flags, not in the URL.")
+    host = (split.hostname or "").lower().rstrip(".")
+    if host in METADATA_HOSTS:
+        raise ValueError("That host is a cloud metadata name and is blocked.")
+    if is_blocked_ip(host, block_loopback):
+        raise ValueError("That address is link-local, metadata, or otherwise blocked.")
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror as exc:
+        raise ValueError("Could not resolve %s." % host) from exc
+    for info in infos:
+        address = info[4][0]
+        if is_blocked_ip(address, block_loopback):
+            raise ValueError("That host resolves to a blocked address.")
+    return split
+
+
+class Response:
+    def __init__(self, status: int, body: str, headers, final_url: str, off_host: bool) -> None:
+        self.status = status
+        self.body = body
+        self.headers = headers
+        self.final_url = final_url
+        self.off_host = off_host
+
+
+def build_opener(proxy: Optional[str], insecure: bool) -> urllib.request.OpenerDirector:
+    opener = urllib.request.OpenerDirector()
+    if proxy:
+        opener.add_handler(urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
+    context = ssl._create_unverified_context() if insecure else ssl.create_default_context()
+    opener.add_handler(urllib.request.HTTPHandler())
+    opener.add_handler(urllib.request.HTTPSHandler(context=context))
+    # Without this, a non-2xx response raises KeyError('http') instead of HTTPError.
+    opener.add_handler(urllib.request.HTTPDefaultErrorHandler())
+    opener.add_handler(urllib.request.HTTPErrorProcessor())
+    return opener
+
+
+def header_get(headers, name: str) -> Optional[str]:
+    if headers is None:
+        return None
+    value = headers.get(name)
+    return value if value else None
+
+
+def set_cookies(headers) -> List[str]:
+    if headers is None:
+        return []
+    values = headers.get_all("Set-Cookie") if hasattr(headers, "get_all") else None
+    if values:
+        return list(values)
+    single = headers.get("Set-Cookie")
+    return [single] if single else []
+
+
+def absorb(jar: Dict[str, str], locked: set, lines: Sequence[str]) -> None:
+    for line in lines:
+        pair = line.split(";", 1)[0]
+        if "=" not in pair:
+            continue
+        name, value = pair.split("=", 1)
+        name = name.strip()
+        if not name or name in locked:
+            continue
+        jar[name] = value.strip()
+
+
+def cookie_header(jar: Dict[str, str]) -> str:
+    return "; ".join("%s=%s" % item for item in jar.items())
+
+
+def fetch_once(opener, url: str, method: str, data: Optional[bytes], headers: Dict[str, str], timeout: float) -> Tuple[int, str, object, str]:
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            raw = response.read(MAX_BODY + 1)
+            body = raw[:MAX_BODY].decode("utf-8", "replace")
+            return response.status, body, response.headers, response.geturl()
+    except urllib.error.HTTPError as exc:
+        try:
+            raw = exc.read(MAX_BODY + 1) if exc.fp else b""
+        finally:
+            exc.close()
+        body = raw[:MAX_BODY].decode("utf-8", "replace")
+        return exc.code, body, exc.headers, url
+
+
+def fetch_same_origin(opener, start: str, method: str, data: Optional[bytes], headers: Dict[str, str], jar: Dict[str, str], locked: set, timeout: float) -> Response:
+    origin = urllib.parse.urlsplit(start)
+    origin_key = (origin.scheme, origin.netloc)
+    current = start
+    verb = method
+    payload = data
+    last_status = 0
+    last_body = ""
+    last_headers = None
+    for _ in range(5):
+        sent = dict(headers)
+        cookie = cookie_header(jar)
+        if cookie:
+            sent["Cookie"] = cookie
+        status, body, response_headers, _ = fetch_once(opener, current, verb, payload, sent, timeout)
+        absorb(jar, locked, set_cookies(response_headers))
+        last_status, last_body, last_headers = status, body, response_headers
+        if status < 300 or status >= 400:
+            return Response(status, body, response_headers, current, False)
+        location = header_get(response_headers, "Location")
+        if not location:
+            return Response(status, body, response_headers, current, False)
+        nxt = urllib.parse.urljoin(current, location)
+        split = urllib.parse.urlsplit(nxt)
+        if (split.scheme, split.netloc) != origin_key:
+            return Response(status, body, response_headers, current, True)
+        current = nxt
+        if verb not in ("GET", "HEAD") and status in (301, 302, 303):
+            verb = "GET"
+            payload = None
+    return Response(last_status, last_body, last_headers, current, False)
+
+
+def parse_header_lines(raw: str) -> Dict[str, str]:
+    headers = {}
+    for line in raw.splitlines():
+        if ":" not in line:
+            continue
+        name, value = line.split(":", 1)
+        name = name.strip()
+        value = value.strip()
+        if not name or name.lower() in ("host", "content-length", "transfer-encoding", "connection"):
+            continue
+        headers[name] = value
+    return headers
+
+
+def seed_jar(cookie: str) -> Tuple[Dict[str, str], set]:
+    jar: Dict[str, str] = {}
+    locked = set()
+    for part in cookie.split(";"):
+        if "=" not in part:
+            continue
+        name, value = part.split("=", 1)
+        name = name.strip()
+        if not name:
+            continue
+        jar[name] = value.strip()
+        locked.add(name)
+    return jar, locked
+
+
+def prefer_handlers(rows: Sequence[dict]) -> List[dict]:
+    chosen: Dict[str, dict] = {}
+    for row in rows:
+        previous = chosen.get(row["id"])
+        if previous is None or (previous["state"] != "present" and row["state"] == "present"):
+            chosen[row["id"]] = row
+    return list(chosen.values())
+
+
+def scan_one(args, url: str) -> dict:
+    started = time.time()
+    try:
+        check_url(url, block_loopback=False)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc), "target": url, "elapsedMs": 0}
+
+    if args.bearer and args.basic:
+        return {"ok": False, "error": "Bearer and basic auth both set the Authorization header. Use one.", "target": url}
+
+    opener = build_opener(args.proxy, args.insecure)
+    jar, locked = seed_jar(args.cookie or "")
+    headers = {
+        "User-Agent": BROWSER_UA if not args.scanner_ua else SCANNER_UA,
+        "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.8",
+    }
+    headers.update(parse_header_lines(args.header_text or ""))
+    if args.bearer:
+        headers["Authorization"] = "Bearer " + args.bearer
+    elif args.basic:
+        import base64
+
+        headers["Authorization"] = "Basic " + base64.b64encode(args.basic.encode()).decode()
+
+    requests = []
+    environment = {}
+    timeout = args.timeout
+    try:
+        if args.form_url:
+            check_url(args.form_url, block_loopback=False)
+            if not args.form_user:
+                return {"ok": False, "error": "Form login needs a username.", "target": url}
+            form = urllib.parse.urlencode(
+                {
+                    args.form_user_field or "username": args.form_user,
+                    args.form_pass_field or "password": args.form_password or "",
+                }
+            ).encode()
+            login = fetch_same_origin(opener, args.form_url, "POST", form, headers, jar, locked, timeout)
+            requests.append({"url": args.form_url, "status": login.status, "purpose": "form login"})
+            server = header_get(login.headers, "Server")
+            aspnet = header_get(login.headers, "X-AspNet-Version")
+            if server:
+                environment["server"] = server
+            if aspnet:
+                environment["aspNet"] = aspnet
+
+        page = fetch_same_origin(opener, url, "GET", None, headers, jar, locked, timeout)
+        requests.append({"url": page.final_url, "status": page.status, "purpose": "page"})
+        server = header_get(page.headers, "Server")
+        aspnet = header_get(page.headers, "X-AspNet-Version")
+        if server:
+            environment["server"] = server
+        if aspnet:
+            environment["aspNet"] = aspnet
+        versions = extract_versions(page.body, page.final_url)
+        signals = markup_signals(page.body)
+        notes = []
+        if page.off_host:
+            notes.append("The target URL redirected to a different host. Handler probes stayed on the original host.")
+        referenced = referenced_bases(page.final_url if not page.off_host else url, page.body)
+        parents = directory_bases(page.final_url if not page.off_host else url, not args.no_walk)
+        bases = []
+        seen = set()
+        for base in referenced + parents:
+            if base not in seen:
+                seen.add(base)
+                bases.append(base)
+        handlers = []
+        app_base = None
+        for base in bases:
+            handler_id, name, path = HANDLERS[0]
+            probe = urllib.parse.urljoin(base, path)
+            got = fetch_same_origin(opener, probe, "GET", None, headers, jar, locked, timeout)
+            requests.append({"url": probe, "status": got.status, "purpose": handler_id})
+            versions.extend(extract_versions(got.body, got.final_url))
+            state, detail = classify_handler(handler_id, got.status, got.body)
+            row = {"id": handler_id, "name": name, "url": got.final_url, "status": got.status, "state": state, "detail": detail}
+            if state == "present":
+                app_base = base
+                handlers.append(row)
+                break
+            if base == bases[0]:
+                handlers.append(row)
+        rest_base = app_base or (bases[0] if bases else None)
+        if rest_base:
+            for handler_id, name, path in HANDLERS[1:]:
+                probe = urllib.parse.urljoin(rest_base, path)
+                got = fetch_same_origin(opener, probe, "GET", None, headers, jar, locked, timeout)
+                requests.append({"url": probe, "status": got.status, "purpose": handler_id})
+                versions.extend(extract_versions(got.body, got.final_url))
+                state, detail = classify_handler(handler_id, got.status, got.body)
+                handlers.append(
+                    {"id": handler_id, "name": name, "url": got.final_url, "status": got.status, "state": state, "detail": detail}
+                )
+        headline = build_headline(versions)
+        chosen = prefer_handlers(handlers)
+        notes.extend(build_notes(headline, chosen, signals))
+        elapsed = int((time.time() - started) * 1000)
+        return {
+            "ok": True,
+            "target": url,
+            "finalUrl": page.final_url,
+            "headline": headline,
+            "advisories": assess_version(headline.get("version"), headline.get("product")),
+            "versions": versions,
+            "handlers": chosen,
+            "signals": signals,
+            "notes": notes,
+            "environment": environment,
+            "requests": requests,
+            "fetched": len(requests),
+            "elapsedMs": elapsed,
+            "partial": False,
+        }
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc), "target": url, "elapsedMs": int((time.time() - started) * 1000)}
+    except urllib.error.URLError as exc:
+        reason = exc.reason
+        text = str(reason)
+        if isinstance(reason, ssl.SSLError) or "CERTIFICATE" in text.upper():
+            message = "TLS verification failed. Re-run with --insecure only if you trust this host. (%s)" % text
+        else:
+            message = "The request failed before a version could be read. (%s)" % text
+        return {"ok": False, "error": message, "target": url, "elapsedMs": int((time.time() - started) * 1000)}
+    except (TimeoutError, socket.timeout) as exc:
+        return {
+            "ok": False,
+            "error": "The request timed out before a version could be read. (%s)" % exc,
+            "target": url,
+            "elapsedMs": int((time.time() - started) * 1000),
+        }
+    except Exception as exc:  # noqa: BLE001 — keep the class and message so the next failure is diagnosable
+        detail = str(exc).strip() or exc.__class__.__name__
+        return {
+            "ok": False,
+            "error": "The request failed before a version could be read. (%s: %s)" % (exc.__class__.__name__, detail),
+            "target": url,
+            "elapsedMs": int((time.time() - started) * 1000),
+        }
+
+
+def render_text(result: dict) -> str:
+    if not result.get("ok"):
+        return "error: %s\ntarget: %s" % (result.get("error", "failed"), result.get("target", ""))
+    headline = result["headline"]
+    lines = [
+        "target:  %s" % result["target"],
+        "final:   %s" % result.get("finalUrl", ""),
+        "version: %s" % (headline.get("version") or "unread"),
+        "summary: %s" % headline.get("summary", ""),
+    ]
+    env = result.get("environment") or {}
+    if env.get("server") or env.get("aspNet"):
+        lines.append("server:  %s  asp.net: %s" % (env.get("server") or "-", env.get("aspNet") or "-"))
+    lines.append("handlers:")
+    for row in result.get("handlers") or []:
+        lines.append("  %-18s %-8s %s  %s" % (row["name"], row["state"], row["status"], row["detail"]))
+    if result.get("advisories"):
+        lines.append("published ranges:")
+        for row in result["advisories"]:
+            lines.append("  %-16s %-13s %s" % (row["id"], row["status"], row["title"]))
+    if result.get("notes"):
+        lines.append("notes:")
+        for note in result["notes"]:
+            lines.append("  - %s" % note)
+    lines.append("requests: %d in %d ms" % (result.get("fetched", 0), result.get("elapsedMs", 0)))
+    return "\n".join(lines)
+
+
+def self_test() -> int:
+    page = """<!doctype html><html><head>
+<link rel="stylesheet" href="https://cdn.example.com/docs.css?v=2024.2.514" />
+<link class="Telerik_stylesheet" href="https://d35islomi5rx1v.cloudfront.net/ajax/2026.3.812/Grid.css" />
+<!-- 2018.2.710.45 -->
+</head><body><script src="/app/Telerik.Web.UI.WebResource.axd?d=abc&t=1"></script></body></html>"""
+    hits = extract_versions(page, "https://app.example/page.aspx")
+    found = sorted("%s:%s:%s" % (hit["product"], hit["version"], hit["method"]) for hit in hits)
+    expect = [
+        "aspnet-ajax:2018.2.710.45:html-comment",
+        "aspnet-ajax:2026.3.812:ajax-cdn",
+    ]
+    if found != expect:
+        print("self-test failed: versions %s" % found, file=sys.stderr)
+        return 1
+    decoy = extract_versions('<link href="/site.css?v=2024.2.514" />', "https://app.example/")
+    if decoy:
+        print("self-test failed: cache-buster false positive", file=sys.stderr)
+        return 1
+    gzip_path = extract_versions(
+        '<link class="Telerik_stylesheet" href="https://d35islomi5rx1v.cloudfront.net/ajaxz/2026.3.812/Grid.css" />',
+        "https://demos.example/grid.aspx",
+    )
+    if len(gzip_path) != 1 or gzip_path[0]["version"] != "2026.3.812" or gzip_path[0]["method"] != "ajax-cdn":
+        print("self-test failed: ajaxz %s" % gzip_path, file=sys.stderr)
+        return 1
+    state, _ = classify_handler(
+        "rau",
+        200,
+        '{ "message" : "RadAsyncUpload handler is registered succesfully, however, it may not be accessed directly." }',
+    )
+    if state != "present":
+        print("self-test failed: rau", file=sys.stderr)
+        return 1
+    if classify_handler("dialog", 200, "<title>HandlerCheckOK</title>")[0] != "present":
+        print("self-test failed: dialog", file=sys.stderr)
+        return 1
+    headline = build_headline(
+        [
+            {"version": "2019.2.514.45", "product": "aspnet-ajax", "method": "html-comment", "source": "p", "evidence": "c"},
+            {"version": "2019.2.514", "product": "aspnet-ajax", "method": "ajax-cdn", "source": "p", "evidence": "d"},
+        ]
+    )
+    if headline["conflict"] or headline["version"] != "2019.2.514.45":
+        print("self-test failed: headline %s" % headline, file=sys.stderr)
+        return 1
+    rows = {row["id"]: row["status"] for row in assess_version("2026.3.812", "aspnet-ajax")}
+    if any(status != "above-fix" for status in rows.values()):
+        print("self-test failed: advisory %s" % rows, file=sys.stderr)
+        return 1
+    try:
+        check_url("http://169.254.169.254/latest", False)
+        print("self-test failed: metadata was allowed", file=sys.stderr)
+        return 1
+    except ValueError:
+        pass
+    if not self_test_http_error():
+        return 1
+    print("self-test ok")
+    return 0
+
+
+def self_test_http_error() -> bool:
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 — stdlib callback name
+            self.send_response(404)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"missing")
+
+        def log_message(self, fmt, *args):  # noqa: A003
+            return
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        opener = build_opener(None, False)
+        status, body, _headers, _final = fetch_once(
+            opener,
+            "http://127.0.0.1:%d/nope" % server.server_address[1],
+            "GET",
+            None,
+            {"User-Agent": "t"},
+            5,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print("self-test failed: non-2xx raised %s: %s" % (exc.__class__.__name__, exc), file=sys.stderr)
+        return False
+    finally:
+        server.shutdown()
+    if status != 404 or "missing" not in body:
+        print("self-test failed: non-2xx status %s body %r" % (status, body), file=sys.stderr)
+        return False
+    return True
+
+
+def load_targets(args) -> List[str]:
+    targets = []
+    if args.url:
+        targets.append(args.url.strip())
+    if args.list:
+        with open(args.list, "r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                targets.append(line)
+    return targets
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Read the Telerik UI build exposed by a remote site."
+    )
+    parser.add_argument("--url", help="Page that renders a Telerik control. Handlers are derived from this URL.")
+    parser.add_argument("--list", help="Text file of target URLs, one per line.")
+    parser.add_argument("--cookie", default="", help="Cookie header value, without the Cookie: prefix.")
+    parser.add_argument("--header", action="append", default=[], help="Extra request header, 'Name: Value'. Repeatable.")
+    parser.add_argument("--bearer", default="", help="Bearer token.")
+    parser.add_argument("--basic", default="", help="HTTP basic credentials as user:password.")
+    parser.add_argument("--form-url", default="", help="Form login URL. POST application/x-www-form-urlencoded.")
+    parser.add_argument("--form-user-field", default="username")
+    parser.add_argument("--form-pass-field", default="password")
+    parser.add_argument("--form-user", default="")
+    parser.add_argument("--form-password", default="")
+    parser.add_argument("--proxy", default="", help="Proxy URL for every request, for example http://127.0.0.1:8080.")
+    parser.add_argument("--timeout", type=float, default=12.0, help="Per-request timeout in seconds.")
+    parser.add_argument("--insecure", action="store_true", help="Skip TLS certificate verification.")
+    parser.add_argument("--scanner-ua", action="store_true", help="Send the scanner user-agent instead of a browser user-agent.")
+    parser.add_argument("--no-walk", action="store_true", help="Probe handlers in the page directory only.")
+    parser.add_argument("--json", action="store_true", help="Print JSON.")
+    parser.add_argument("--self-test", action="store_true", help="Run offline checks and exit.")
+    args = parser.parse_args(argv)
+    args.header_text = "\n".join(args.header)
+    args.proxy = args.proxy or None
+    if args.self_test:
+        return self_test()
+    targets = load_targets(args)
+    if not targets:
+        parser.error("Pass --url or --list.")
+    results = [scan_one(args, target) for target in targets]
+    if args.json:
+        json.dump(results if len(results) > 1 else results[0], sys.stdout, indent=2)
+        sys.stdout.write("\n")
+    else:
+        for index, result in enumerate(results):
+            if index:
+                print("\n----\n")
+            print(render_text(result))
+    if any(not item.get("ok") for item in results):
+        return 1
+    found = any(
+        (item.get("headline") or {}).get("version") or any(row.get("state") == "present" for row in item.get("handlers") or [])
+        for item in results
+    )
+    return 0 if found else 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
