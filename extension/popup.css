@@ -45,14 +45,6 @@ header div { min-width: 0; flex: 1; }
   color: var(--brass);
 }
 
-.mark {
-  margin: 1px 0 0;
-  color: var(--muted);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .host, .defs {
   margin: 2px 0 0;
   color: var(--muted);
@@ -74,6 +66,22 @@ button {
 }
 
 main { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+
+footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px 10px;
+  border-top: 1px solid var(--line);
+  color: var(--brass);
+  font-size: 12px;
+}
+
+footer a {
+  color: var(--fg);
+  text-decoration: none;
+}
 
 .card {
   border: 1px solid var(--line);
