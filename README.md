@@ -30,7 +30,9 @@ Exit 0 when a version or a handler is present, 2 on a clean miss, 1 on error.
 
 ## Extension
 
-Chrome or Edge. On the extensions page, turn on developer mode, choose Load unpacked, and select the `extension/` folder. Open the app, then click the icon. The read uses that tab's session. One reload is required after this permission change. After that, published ranges and handler probes come from [extension/definitions.json](extension/definitions.json). The popup fetches that file from `main` on each read. Bump the `version` number in the file when you change it. The popup line shows the number and whether it came from the repo, a saved copy, or the copy packed in the extension. A parser change still needs a reload.
+v0.2.0 reads `extension/definitions.json` for the published ranges. The runner loads that file when it sits next to the script or at `extension/definitions.json`, and otherwise uses the copy packed into the script. The extension reads the same file from `main` when its `version` is higher.
+
+Chrome or Edge. On the extensions page, turn on developer mode, choose Load unpacked, and select the `extension/` folder. Open the app, then click the icon. The read uses that tab's session. Reload the unpacked extension for v0.2.0. After that, a higher `version` in `definitions.json` updates the ranges without another reload. The popup line shows the number and whether it came from the repo, a saved copy, or the copy packed in the extension.
 
 The grant on the tab is the click (`activeTab`, `scripting`). The popup also fetches the Telerik AJAX CDN and the two Kendo CDNs, with credentials omitted, to check the file the page linked.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tell-erik 0.1.0: remote Telerik UI version enumerator.
+"""tell-erik 0.2.0: remote Telerik UI version enumerator.
 
 Reads the product build from rendered markup (HTML version comment, assembly or
 resource query, AJAX CDN path, Kendo CDN and script banners). A linked CDN
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import socket
 import ssl
@@ -44,22 +45,41 @@ HANDLERS = [
     ("chart", "ChartImage", "ChartImage.axd"),
     ("report", "ReportViewer", "Telerik.ReportViewer.axd"),
 ]
-ADVISORIES = [
+
+def load_advisories():
+    root = os.path.dirname(os.path.abspath(__file__))
+    for path in (
+        os.path.join(root, "definitions.json"),
+        os.path.join(root, "extension", "definitions.json"),
+    ):
+        try:
+            with open(path, encoding="utf-8") as handle:
+                doc = json.load(handle)
+        except OSError:
+            continue
+        rows = doc.get("advisories") if isinstance(doc, dict) else None
+        if isinstance(rows, list) and rows:
+            return rows
+    return json.loads(EMBEDDED_ADVISORIES)
+
+
+EMBEDDED_ADVISORIES = r"""
+[
     {
         "id": "CVE-2017-9248",
         "title": "DialogHandler cryptographic weakness",
-        "floor": None,
-        "ceiling": None,
+        "floor": null,
+        "ceiling": null,
         "fixed": "2017.2.621",
-        "detail": "Builds before 2017.2.621. Confirm the key in use separately.",
+        "detail": "Builds before 2017.2.621. Confirm the key in use separately."
     },
     {
         "id": "CVE-2019-18935",
         "title": "RadAsyncUpload deserialization",
-        "floor": None,
+        "floor": null,
         "ceiling": "2019.3.1023",
         "fixed": "2020.1.114",
-        "detail": "Through 2019.3.1023. 2020.1.114 blocks the default path. Known encryption material changes the picture.",
+        "detail": "Through 2019.3.1023. 2020.1.114 blocks the default path. Known encryption material changes the picture."
     },
     {
         "id": "CVE-2025-3600",
@@ -67,7 +87,7 @@ ADVISORIES = [
         "floor": "2011.2.712",
         "ceiling": "2025.1.218",
         "fixed": "2025.1.416",
-        "detail": "2011.2.712 through 2025.1.218. Fixed in 2025.1.416.",
+        "detail": "2011.2.712 through 2025.1.218. Fixed in 2025.1.416."
     },
     {
         "id": "CVE-2026-13181",
@@ -75,7 +95,7 @@ ADVISORIES = [
         "floor": "2010.1.309",
         "ceiling": "2026.2.519",
         "fixed": "2026.2.708",
-        "detail": "Through 2026.2.519. Fixed in 2026.2.708. Requires a non-default encryption key.",
+        "detail": "Through 2026.2.519. Fixed in 2026.2.708. Requires a non-default encryption key."
     },
     {
         "id": "CVE-2026-18672",
@@ -83,88 +103,88 @@ ADVISORIES = [
         "floor": "2011.2.712",
         "ceiling": "2026.2.708",
         "fixed": "2026.3.812",
-        "detail": "2011.2.712 through 2026.2.708 inclusive. Fixed in 2026.3.812. Requires a static machineKey or dialog key.",
+        "detail": "2011.2.712 through 2026.2.708 inclusive. Fixed in 2026.3.812. Requires a static machineKey or dialog key."
     },
     {
         "id": "CVE-2026-106149",
         "title": "Menu attribute XSS",
         "product": "kendo",
         "floor": "2011.2.804",
-        "ceiling": None,
+        "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 5.4. Menu dataSource attributes, from 2011.2.804. Fixed in 2026.3.1015.",
+        "detail": "Kendo UI for jQuery. CVSS 5.4. Menu dataSource attributes, from 2011.2.804. Fixed in 2026.3.1015."
     },
     {
         "id": "CVE-2026-106148",
         "title": "TabStrip, Menu, and PanelBar image URL XSS",
         "product": "kendo",
         "floor": "2011.2.804",
-        "ceiling": None,
+        "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 5.4. Vendor table starts at 2011.2.804. Fixed in 2026.3.1015. The earliest build was not confirmed.",
+        "detail": "Kendo UI for jQuery. CVSS 5.4. Vendor table starts at 2011.2.804. Fixed in 2026.3.1015. The earliest build was not confirmed."
     },
     {
         "id": "CVE-2026-106150",
         "title": "Splitter, Window, and Tooltip iframe XSS",
         "product": "kendo",
         "floor": "2011.2.804",
-        "ceiling": None,
+        "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 5.4. Splitter and Window from 2011.2.804. Tooltip from 2013.1.319. Fixed in 2026.3.1015.",
+        "detail": "Kendo UI for jQuery. CVSS 5.4. Splitter and Window from 2011.2.804. Tooltip from 2013.1.319. Fixed in 2026.3.1015."
     },
     {
         "id": "CVE-2026-106153",
         "title": "Calendar template XSS",
         "product": "kendo",
         "floor": "2011.3.1007",
-        "ceiling": None,
+        "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. Calendar and MultiViewCalendar from 2011.3.1007. Fixed in 2026.3.1015.",
+        "detail": "Kendo UI for jQuery. Calendar and MultiViewCalendar from 2011.3.1007. Fixed in 2026.3.1015."
     },
     {
         "id": "CVE-2026-106151",
         "title": "Validator message XSS",
         "product": "kendo",
         "floor": "2012.2.710",
-        "ceiling": None,
+        "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 5.4. From 2012.2.710. Fixed in 2026.3.1015.",
+        "detail": "Kendo UI for jQuery. CVSS 5.4. From 2012.2.710. Fixed in 2026.3.1015."
     },
     {
         "id": "CVE-2026-106158",
         "title": "Scheduler resource color XSS",
         "product": "kendo",
         "floor": "2014.3.1119",
-        "ceiling": None,
+        "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 4.7. From 2014.3.1119. Fixed in 2026.3.1015.",
+        "detail": "Kendo UI for jQuery. CVSS 4.7. From 2014.3.1119. Fixed in 2026.3.1015."
     },
     {
         "id": "CVE-2026-106157",
         "title": "PanelBar item URL XSS",
         "product": "kendo",
         "floor": "2019.2.514",
-        "ceiling": None,
+        "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 4.7. From 2019.2.514. Fixed in 2026.3.1015.",
+        "detail": "Kendo UI for jQuery. CVSS 4.7. From 2019.2.514. Fixed in 2026.3.1015."
     },
     {
         "id": "CVE-2026-106147",
         "title": "ListBox bound text XSS",
         "product": "kendo",
         "floor": "2020.1.114",
-        "ceiling": None,
+        "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 5.4. From 2020.1.114. Fixed in 2026.3.1015.",
+        "detail": "Kendo UI for jQuery. CVSS 5.4. From 2020.1.114. Fixed in 2026.3.1015."
     },
     {
         "id": "CVE-2026-106161",
         "title": "Badge text XSS",
         "product": "kendo",
         "floor": "2020.1.114",
-        "ceiling": None,
+        "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 5.4. From 2020.1.114. Fixed in 2026.3.1015.",
+        "detail": "Kendo UI for jQuery. CVSS 5.4. From 2020.1.114. Fixed in 2026.3.1015."
     },
     {
         "id": "CVE-2025-6725",
@@ -173,27 +193,278 @@ ADVISORIES = [
         "floor": "2024.4.1112",
         "ceiling": "2025.2.520",
         "fixed": "2025.2.702",
-        "detail": "Kendo UI for jQuery. CVSS 5.4. 2024.4.1112 through 2025.2.520. Fixed in 2025.2.702.",
+        "detail": "Kendo UI for jQuery. CVSS 5.4. 2024.4.1112 through 2025.2.520. Fixed in 2025.2.702."
     },
     {
         "id": "CVE-2026-106163",
         "title": "FileBrowser and ImageBrowser XSS",
         "product": "kendo",
         "floor": "2023.1.117",
-        "ceiling": None,
+        "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 6.5. From 2023.1.117. Fixed in 2026.3.1015.",
+        "detail": "Kendo UI for jQuery. CVSS 6.5. From 2023.1.117. Fixed in 2026.3.1015."
     },
     {
         "id": "CVE-2026-106160",
         "title": "Model.accept prototype pollution",
         "product": "kendo",
         "floor": "2023.1.117",
-        "ceiling": None,
+        "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 5.4. Vendor lists 2023.1.117 as the start. Fixed in 2026.3.1015.",
+        "detail": "Kendo UI for jQuery. CVSS 5.4. Vendor lists 2023.1.117 as the start. Fixed in 2026.3.1015."
     },
+    {
+        "id": "CVE-2017-11357",
+        "title": "RadAsyncUpload insecure object reference",
+        "product": "aspnet-ajax",
+        "floor": null,
+        "ceiling": null,
+        "fixed": "2017.2.711",
+        "cvss": 9.8,
+        "kev": true,
+        "detail": "CVSS 9.8. CISA KEV, added 2023-01-26. Before R2 2017 SP2 (2017.2.711)."
+    },
+    {
+        "id": "CVE-2017-11317",
+        "title": "RadAsyncUpload weak encryption",
+        "product": "aspnet-ajax",
+        "floor": null,
+        "ceiling": null,
+        "fixed": "2017.2.711",
+        "cvss": 9.8,
+        "kev": false,
+        "detail": "CVSS 9.8. Before R2 2017 SP2 (2017.2.711). Weak RadAsyncUpload encryption."
+    },
+    {
+        "id": "CVE-2019-19790",
+        "title": "RadChart image handler path traversal",
+        "product": "aspnet-ajax",
+        "floor": null,
+        "ceiling": null,
+        "fixed": null,
+        "requiresHandler": "chart",
+        "cvss": 9.8,
+        "kev": false,
+        "detail": "CVSS 9.8. Every RadChart build. The component was discontinued in 2014. Remove ChartImage.axd."
+    },
+    {
+        "id": "CVE-2026-6023",
+        "title": "RadFilter state deserialization",
+        "product": "aspnet-ajax",
+        "floor": "2024.4.1114",
+        "ceiling": "2026.1.225",
+        "fixed": "2026.1.421",
+        "cvss": 8.1,
+        "kev": false,
+        "detail": "CVSS 8.1. RadFilter only. 2024.4.1114 through 2026.1.225. Fixed in 2026.1.421."
+    },
+    {
+        "id": "CVE-2026-13182",
+        "title": "RadAsyncUpload padding oracle",
+        "product": "aspnet-ajax",
+        "floor": "2010.1.309",
+        "ceiling": "2026.2.519",
+        "fixed": "2026.2.708",
+        "cvss": 7.5,
+        "kev": false,
+        "detail": "CVSS 7.5. July 2026 bulletin. RadAsyncUpload from 2010.1.309 through 2026.2.519. Fixed in 2026.2.708."
+    },
+    {
+        "id": "CVE-2026-13183",
+        "title": "RadAsyncUpload timing oracle",
+        "product": "aspnet-ajax",
+        "floor": "2010.1.309",
+        "ceiling": "2026.2.519",
+        "fixed": "2026.2.708",
+        "cvss": 7.5,
+        "kev": false,
+        "detail": "CVSS 7.5. July 2026 bulletin. RadAsyncUpload from 2010.1.309 through 2026.2.519. Fixed in 2026.2.708."
+    },
+    {
+        "id": "CVE-2026-13184",
+        "title": "RadAsyncUpload default HMAC key",
+        "product": "aspnet-ajax",
+        "floor": "2010.1.309",
+        "ceiling": "2026.2.519",
+        "fixed": "2026.2.708",
+        "cvss": 7.5,
+        "kev": false,
+        "detail": "CVSS 7.5. July 2026 bulletin. RadAsyncUpload from 2010.1.309 through 2026.2.519. Fixed in 2026.2.708."
+    },
+    {
+        "id": "CVE-2026-13185",
+        "title": "Persistence cookie deserialization",
+        "product": "aspnet-ajax",
+        "floor": "2013.1.220",
+        "ceiling": "2026.2.519",
+        "fixed": "2026.2.708",
+        "cvss": 8.1,
+        "kev": false,
+        "detail": "CVSS 8.1. RadPersistenceManager or RadDockLayout cookie storage. 2013.1.220 through 2026.2.519. Fixed in 2026.2.708."
+    },
+    {
+        "id": "CVE-2026-13186",
+        "title": "Persistence storage path traversal",
+        "product": "aspnet-ajax",
+        "floor": "2013.1.220",
+        "ceiling": "2026.2.519",
+        "fixed": "2026.2.708",
+        "cvss": 8.1,
+        "kev": false,
+        "detail": "CVSS 8.1. File-based persistence provider. Vendor bulletin starts at 2013.1.220. Fixed in 2026.2.708."
+    },
+    {
+        "id": "CVE-2026-13187",
+        "title": "DialogHandler provider type tampering",
+        "product": "aspnet-ajax",
+        "floor": null,
+        "ceiling": null,
+        "fixed": "2026.2.708",
+        "cvss": 8.1,
+        "kev": false,
+        "detail": "CVSS 8.1. Dialog provider type. Fixed in 2026.2.708."
+    },
+    {
+        "id": "CVE-2026-13188",
+        "title": "Dialog parameter tampering",
+        "product": "aspnet-ajax",
+        "floor": null,
+        "ceiling": null,
+        "fixed": "2026.2.708",
+        "cvss": 5.9,
+        "kev": false,
+        "detail": "CVSS 5.9. Dialog parameter tampering. Fixed in 2026.2.708."
+    },
+    {
+        "id": "CVE-2026-13190",
+        "title": "PersistenceFramework unsafe type resolution",
+        "product": "aspnet-ajax",
+        "floor": "2013.1.220",
+        "ceiling": "2026.2.519",
+        "fixed": "2026.2.708",
+        "cvss": 8.1,
+        "kev": false,
+        "detail": "CVSS 8.1. RadPersistenceManager. 2013.1.220 through 2026.2.519. Fixed in 2026.2.708."
+    },
+    {
+        "id": "CVE-2026-13192",
+        "title": "RadEditor PDF export server request",
+        "product": "aspnet-ajax",
+        "floor": null,
+        "ceiling": null,
+        "fixed": "2026.2.708",
+        "cvss": 6.5,
+        "kev": false,
+        "detail": "CVSS 6.5. RadEditor PDF export. Fixed in 2026.2.708."
+    },
+    {
+        "id": "CVE-2026-14865",
+        "title": "LayoutBuilder client-state XML",
+        "product": "aspnet-ajax",
+        "floor": null,
+        "ceiling": null,
+        "fixed": "2026.2.708",
+        "cvss": 5.3,
+        "kev": false,
+        "detail": "CVSS 5.3. LayoutBuilder. Fixed in 2026.2.708."
+    },
+    {
+        "id": "CVE-2026-14932",
+        "title": "ChartImage.axd file read and delete",
+        "product": "aspnet-ajax",
+        "floor": null,
+        "ceiling": null,
+        "fixed": "2026.2.708",
+        "requiresHandler": "chart",
+        "cvss": 6.5,
+        "kev": false,
+        "detail": "CVSS 6.5. Obsolete RadChart. ChartImage.axd. Fixed in 2026.2.708."
+    },
+    {
+        "id": "CVE-2026-19219",
+        "title": "DialogHandler upload path tampering",
+        "product": "aspnet-ajax",
+        "floor": "2011.2.712",
+        "ceiling": "2026.2.708",
+        "fixed": "2026.3.812",
+        "cvss": 8.1,
+        "kev": false,
+        "detail": "CVSS 8.1. RadEditor file browser. 2011.2.712 through 2026.2.708. Fixed in 2026.3.812. Requires exposed key material."
+    },
+    {
+        "id": "CVE-2026-106159",
+        "title": "ToolBar ButtonGroup URL XSS",
+        "product": "kendo",
+        "floor": "2022.3.1109",
+        "ceiling": null,
+        "fixed": "2026.3.1015",
+        "cvss": 4.7,
+        "kev": false,
+        "detail": "Kendo UI for jQuery. CVSS 4.7. From 2022.3.1109. Fixed in 2026.3.1015."
+    },
+    {
+        "id": "CVE-2026-106162",
+        "title": "FileManager drag hint XSS",
+        "product": "kendo",
+        "floor": "2023.3.1010",
+        "ceiling": null,
+        "fixed": "2026.3.1015",
+        "cvss": 4.7,
+        "kev": false,
+        "detail": "Kendo UI for jQuery. CVSS 4.7. From 2023.3.1010. Fixed in 2026.3.1015."
+    },
+    {
+        "id": "CVE-2020-11022",
+        "title": "jQuery htmlPrefilter XSS",
+        "product": "jquery",
+        "scheme": "dotted",
+        "floor": "1.2.0",
+        "ceiling": "3.4.1",
+        "fixed": "3.5.0",
+        "cvss": 6.1,
+        "kev": false,
+        "detail": "jQuery. CVSS 6.1. 1.2.0 through 3.4.1. Fixed in 3.5.0."
+    },
+    {
+        "id": "CVE-2020-11023",
+        "title": "jQuery option XSS",
+        "product": "jquery",
+        "scheme": "dotted",
+        "floor": "1.0.3",
+        "ceiling": "3.4.1",
+        "fixed": "3.5.0",
+        "cvss": 6.1,
+        "kev": false,
+        "detail": "jQuery. CVSS 6.1. 1.0.3 through 3.4.1. Fixed in 3.5.0."
+    },
+    {
+        "id": "CVE-2019-11358",
+        "title": "jQuery extend prototype pollution",
+        "product": "jquery",
+        "scheme": "dotted",
+        "floor": null,
+        "ceiling": null,
+        "fixed": "3.4.0",
+        "cvss": 6.1,
+        "kev": false,
+        "detail": "jQuery. CVSS 6.1. Before 3.4.0."
+    },
+    {
+        "id": "CVE-2024-4200",
+        "title": "Reporting localization deserialization",
+        "product": "reporting",
+        "scheme": "dotted",
+        "floor": null,
+        "ceiling": null,
+        "fixed": "18.1.24.514",
+        "cvss": null,
+        "kev": false,
+        "detail": "Telerik Reporting. Before 18.1.24.514 (2024 Q2). A replaced localization asset."
+    }
 ]
+"""
+
+ADVISORIES = load_advisories()
 
 COMMENT_RE = re.compile(r"<!--\s*(20\d{2}\.[1-4]\.\d{3,4}(?:\.\d{2,4})?)\s*-->")
 AJAX_HOST_RE = re.compile(
@@ -698,29 +969,67 @@ def comparison_target(headline: dict) -> Optional[dict]:
     return {"version": headline["version"], "product": headline["product"]}
 
 
-def assess_version(version: Optional[str], product: Optional[str]) -> List[dict]:
-    if not version or product not in ("aspnet-ajax", "kendo"):
+def compare_dotted(left: str, right: str) -> int:
+    def parse(value: str):
+        parts = []
+        for piece in str(value).split("."):
+            if not piece.isdigit():
+                return None
+            parts.append(int(piece))
+        return parts
+
+    a = parse(left)
+    b = parse(right)
+    if a is None or b is None:
+        return 0
+    length = max(len(a), len(b))
+    for index in range(length):
+        gap = (a[index] if index < len(a) else 0) - (b[index] if index < len(b) else 0)
+        if gap:
+            return 1 if gap > 0 else -1
+    return 0
+
+
+def compare_advisory(advisory: dict, version: str, bound: Optional[str]) -> int:
+    if not bound:
+        return 0
+    if advisory.get("scheme") == "dotted":
+        return compare_dotted(version, bound)
+    return compare_product(version, bound)
+
+
+def assess_version(version: Optional[str], product: Optional[str], handlers: Optional[Sequence[dict]] = None) -> List[dict]:
+    if not version or product not in ("aspnet-ajax", "kendo", "jquery", "reporting"):
         return []
     rows = []
     for advisory in ADVISORIES:
         if advisory.get("product", "aspnet-ajax") != product:
             continue
-        if compare_product(version, advisory["fixed"]) >= 0:
-            status = "above-fix"
-        elif advisory["floor"] and compare_product(version, advisory["floor"]) < 0:
-            status = "outside"
-        elif advisory["ceiling"] and compare_product(version, advisory["ceiling"]) <= 0:
-            status = "in-range"
-        elif advisory["ceiling"] and compare_product(version, advisory["ceiling"]) > 0:
-            status = "transitional"
-        else:
-            status = "in-range"
+        status = "in-range"
+        detail = advisory["detail"]
+        if advisory.get("requiresHandler"):
+            handler = next((row for row in (handlers or []) if row.get("id") == advisory["requiresHandler"]), None)
+            if handler is None:
+                status = "unplaced"
+            elif handler.get("state") != "present":
+                status = "outside"
+                detail = "%s %s did not answer." % (detail, handler.get("name") or advisory["requiresHandler"])
+        if status == "in-range":
+            if advisory.get("fixed") and compare_advisory(advisory, version, advisory["fixed"]) >= 0:
+                status = "above-fix"
+            elif advisory.get("floor") and compare_advisory(advisory, version, advisory["floor"]) < 0:
+                status = "outside"
+            elif advisory.get("ceiling") and compare_advisory(advisory, version, advisory["ceiling"]) <= 0:
+                status = "in-range"
+            elif advisory.get("ceiling") and compare_advisory(advisory, version, advisory["ceiling"]) > 0:
+                status = "transitional"
         rows.append(
             {
                 "id": advisory["id"],
                 "title": advisory["title"],
                 "status": status,
-                "detail": advisory["detail"],
+                "detail": detail,
+                "kev": bool(advisory.get("kev")),
             }
         )
     order = {"in-range": 0, "transitional": 1, "unplaced": 2, "outside": 3, "above-fix": 4}
@@ -1145,11 +1454,27 @@ def scan_one(args, url: str) -> dict:
         headline = apply_presence(build_headline(versions, verdicts), signals, chosen)
         notes.extend(build_notes(headline, chosen, signals))
         compared = comparison_target(headline)
-        advisories = assess_version(compared["version"], compared["product"]) if compared else []
+        advisories = []
+        best = {}
+        for hit in versions:
+            confirmed = any(
+                verdict.get("version") == hit["version"] and verdict.get("product") == hit["product"] and verdict.get("state") == "confirmed"
+                for verdict in verdicts
+            )
+            scoreable = hit["method"] in ("assembly", "resource-query", "html-comment", "script-banner", "file-banner") or confirmed
+            if not scoreable:
+                continue
+            current = best.get(hit["product"])
+            if current is None or METHOD_RANK.get(hit["method"], 9) < METHOD_RANK.get(current["method"], 9):
+                best[hit["product"]] = hit
+        for hit in best.values():
+            advisories.extend(assess_version(hit["version"], hit["product"], chosen))
         ajax_known = any(hit["product"] == "aspnet-ajax" for hit in versions)
         ajax_handlers = any(row["id"] in ("rau", "dialog") and row["state"] == "present" for row in chosen)
         if not ajax_known and ajax_handlers and (not compared or compared["product"] != "aspnet-ajax"):
             advisories.extend(unplaced_advisories("aspnet-ajax"))
+        order = {"in-range": 0, "transitional": 1, "unplaced": 2, "outside": 3, "above-fix": 4}
+        advisories.sort(key=lambda row: order.get(row["status"], 9))
         elapsed = int((time.time() - started) * 1000)
         return {
             "ok": True,
@@ -1327,9 +1652,21 @@ def self_test() -> int:
     if banner["bannerVersion"] != "2024.1.319" or banner["state"] != "rejected":
         print("self-test failed: banner %s" % banner, file=sys.stderr)
         return 1
-    rows = {row["id"]: row["status"] for row in assess_version("2026.3.812", "aspnet-ajax")}
-    if any(status != "above-fix" for status in rows.values()):
+    rows = {row["id"]: row["status"] for row in assess_version("2026.3.812", "aspnet-ajax", [{"id": "chart", "name": "ChartImage", "state": "absent"}])}
+    chart_ids = {"CVE-2019-19790", "CVE-2026-14932"}
+    if any(status != "outside" for key, status in rows.items() if key in chart_ids):
+        print("self-test failed: chart advisory %s" % rows, file=sys.stderr)
+        return 1
+    if any(status != "above-fix" for key, status in rows.items() if key not in chart_ids):
         print("self-test failed: advisory %s" % rows, file=sys.stderr)
+        return 1
+    kev = assess_version("2016.2.504", "aspnet-ajax")
+    if not any(row["id"] == "CVE-2017-11357" and row["status"] == "in-range" and row["kev"] for row in kev):
+        print("self-test failed: kev %s" % kev, file=sys.stderr)
+        return 1
+    jquery = {row["id"]: row["status"] for row in assess_version("3.4.1", "jquery")}
+    if jquery.get("CVE-2020-11022") != "in-range" or jquery.get("CVE-2019-11358") != "above-fix":
+        print("self-test failed: jquery %s" % jquery, file=sys.stderr)
         return 1
     try:
         check_url("http://169.254.169.254/latest", False)

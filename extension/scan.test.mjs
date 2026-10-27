@@ -66,8 +66,14 @@ test("confirms a skin and withholds ranges for an HTML body", () => {
 });
 
 test("places 2026.3.812 at or above the tracked fixed builds", () => {
-  const rows = assessVersion("2026.3.812", "aspnet-ajax");
-  assert.ok(rows.every((row) => row.status === "above-fix"));
+  const rows = assessVersion("2026.3.812", "aspnet-ajax", [{ id: "chart", name: "ChartImage", state: "absent" }]);
+  const chart = new Set(["CVE-2019-19790", "CVE-2026-14932"]);
+  assert.ok(rows.filter((row) => chart.has(row.id)).every((row) => row.status === "outside"));
+  assert.ok(rows.filter((row) => !chart.has(row.id)).every((row) => row.status === "above-fix"));
+  const kev = assessVersion("2016.2.504", "aspnet-ajax").find((row) => row.id === "CVE-2017-11357");
+  assert.equal(kev?.status, "in-range");
+  assert.equal(kev?.kev, true);
+  assert.equal(assessVersion("3.4.1", "jquery").find((row) => row.id === "CVE-2020-11022")?.status, "in-range");
 });
 
 test("summarizes a page payload and a live kendo.version", () => {

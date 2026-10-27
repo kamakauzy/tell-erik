@@ -85,15 +85,20 @@ function normalizeDefinitions(doc) {
   if (!doc || typeof doc.version !== "number" || !Array.isArray(doc.advisories) || !Array.isArray(doc.handlers)) return null;
   const nextAdvisories = [];
   for (const row of doc.advisories) {
-    if (!row || typeof row.id !== "string" || typeof row.fixed !== "string") continue;
-    if (row.product !== "aspnet-ajax" && row.product !== "kendo" && row.product !== "reporting") continue;
+    if (!row || typeof row.id !== "string") continue;
+    if (row.fixed != null && typeof row.fixed !== "string") continue;
+    if (row.product !== "aspnet-ajax" && row.product !== "kendo" && row.product !== "reporting" && row.product !== "jquery") continue;
+    if (!row.fixed && !row.requiresHandler) continue;
     nextAdvisories.push({
       id: String(row.id).slice(0, 40),
       title: String(row.title || row.id).slice(0, 140),
       product: row.product,
+      scheme: row.scheme === "dotted" ? "dotted" : "product",
       floor: row.floor || null,
       ceiling: row.ceiling || null,
-      fixed: String(row.fixed).slice(0, 32),
+      fixed: row.fixed ? String(row.fixed).slice(0, 32) : null,
+      requiresHandler: row.requiresHandler ? String(row.requiresHandler).slice(0, 32) : null,
+      kev: Boolean(row.kev),
       detail: String(row.detail || "").slice(0, 400),
     });
   }
@@ -432,17 +437,46 @@ export function channelLine(headline) {
   return "";
 }
 
-export function assessVersion(version, product) {
-  if (!version || (product !== "aspnet-ajax" && product !== "kendo")) return [];
+function compareDotted(left, right) {
+  const parse = (value) => String(value || "").split(".").map((part) => (/^\d+$/.test(part) ? Number(part) : null));
+  const a = parse(left);
+  const b = parse(right);
+  if (a.some((part) => part == null) || b.some((part) => part == null)) return 0;
+  const length = Math.max(a.length, b.length);
+  for (let index = 0; index < length; index += 1) {
+    const gap = (a[index] || 0) - (b[index] || 0);
+    if (gap) return gap > 0 ? 1 : -1;
+  }
+  return 0;
+}
+
+function compareAdvisory(advisory, version, bound) {
+  if (!bound) return 0;
+  return advisory.scheme === "dotted" ? compareDotted(version, bound) : compareProduct(version, bound);
+}
+
+export function assessVersion(version, product, handlers) {
+  if (!version || (product !== "aspnet-ajax" && product !== "kendo" && product !== "jquery" && product !== "reporting")) return [];
   const order = { "in-range": 0, transitional: 1, unplaced: 2, outside: 3, "above-fix": 4 };
   return advisories.filter((advisory) => (advisory.product || "aspnet-ajax") === product)
     .map((advisory) => {
       let status = "in-range";
-      if (compareProduct(version, advisory.fixed) >= 0) status = "above-fix";
-      else if (advisory.floor && compareProduct(version, advisory.floor) < 0) status = "outside";
-      else if (advisory.ceiling && compareProduct(version, advisory.ceiling) <= 0) status = "in-range";
-      else if (advisory.ceiling && compareProduct(version, advisory.ceiling) > 0) status = "transitional";
-      return { id: advisory.id, title: advisory.title, status, detail: advisory.detail };
+      let detail = advisory.detail;
+      if (advisory.requiresHandler) {
+        const handler = (handlers || []).find((row) => row.id === advisory.requiresHandler);
+        if (!handler) status = "unplaced";
+        else if (handler.state !== "present") {
+          status = "outside";
+          detail = `${detail} ${handler.name} did not answer.`;
+        }
+      }
+      if (status === "in-range") {
+        if (advisory.fixed && compareAdvisory(advisory, version, advisory.fixed) >= 0) status = "above-fix";
+        else if (advisory.floor && compareAdvisory(advisory, version, advisory.floor) < 0) status = "outside";
+        else if (advisory.ceiling && compareAdvisory(advisory, version, advisory.ceiling) <= 0) status = "in-range";
+        else if (advisory.ceiling && compareAdvisory(advisory, version, advisory.ceiling) > 0) status = "transitional";
+      }
+      return { id: advisory.id, title: advisory.title, status, detail, kev: advisory.kev };
     })
     .sort((left, right) => order[left.status] - order[right.status]);
 }
@@ -512,6 +546,15 @@ export function summarize(payload) {
       evidence: "kendo.version",
     });
   }
+  if (payload.jqueryVersion && /^\d+\.\d+\.\d+/.test(payload.jqueryVersion)) {
+    versions.push({
+      version: payload.jqueryVersion,
+      product: "jquery",
+      method: "script-banner",
+      source: pageUrl,
+      evidence: "jQuery.fn.jquery",
+    });
+  }
   const signals = markupSignals(`${payload.html || ""}\n${payload.liveHtml || ""}`);
   const handlers = [];
   const seen = new Map();
@@ -529,10 +572,20 @@ export function summarize(payload) {
     headline = { ...headline, summary: "Version unread. A handler answered." };
   }
   const compared = comparisonTarget(headline);
-  const advisories = compared ? assessVersion(compared.version, compared.product) : [];
+  const best = new Map();
+  for (const hit of versions) {
+    const confirmed = verdicts.some((verdict) => verdict.version === hit.version && verdict.product === hit.product && verdict.state === "confirmed");
+    const scoreable = hit.method === "assembly" || hit.method === "resource-query" || hit.method === "html-comment" || hit.method === "script-banner" || hit.method === "file-banner" || confirmed;
+    if (!scoreable) continue;
+    const current = best.get(hit.product);
+    if (!current || (METHOD_RANK[hit.method] ?? 9) < (METHOD_RANK[current.method] ?? 9)) best.set(hit.product, hit);
+  }
+  const advisories = [];
+  for (const hit of best.values()) advisories.push(...assessVersion(hit.version, hit.product, handlers));
   const ajaxKnown = versions.some((hit) => hit.product === "aspnet-ajax");
   const ajaxHandlers = handlers.some((row) => (row.id === "rau" || row.id === "dialog") && row.state === "present");
   if (!ajaxKnown && ajaxHandlers && compared?.product !== "aspnet-ajax") advisories.push(...unplacedAdvisories("aspnet-ajax"));
+  advisories.sort((left, right) => ({ "in-range": 0, transitional: 1, unplaced: 2, outside: 3, "above-fix": 4 })[left.status] - ({ "in-range": 0, transitional: 1, unplaced: 2, outside: 3, "above-fix": 4 })[right.status]);
   const notes = buildNotes(headline, handlers, signals);
   if (payload.login) {
     const suite = signals.length > 0;

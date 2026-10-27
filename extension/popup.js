@@ -44,7 +44,7 @@ function render(result) {
     const table = el("div", "rows");
     for (const row of result.advisories) {
       const line = el("div", "row");
-      line.append(el("span", "mono", row.id), el("span", `status ${row.status}`, STATUS_LABEL[row.status] || row.status));
+      line.append(el("span", "mono", row.id), el("span", `status ${row.status}`, `${row.kev ? "KEV · " : ""}${STATUS_LABEL[row.status] || row.status}`));
       const detail = el("p", "detail");
       detail.append(el("span", "fg", `${row.title}. `), document.createTextNode(row.detail));
       line.append(detail);
@@ -153,19 +153,19 @@ async function readAssets(html, pageUrl) {
   return verdicts;
 }
 
-async function readKendo(tabId) {
+async function readRuntime(tabId) {
   try {
     const [got] = await chrome.scripting.executeScript({
       target: { tabId },
       world: "MAIN",
-      func: () => {
-        const value = globalThis.kendo && globalThis.kendo.version;
-        return typeof value === "string" ? value : "";
-      },
+      func: () => ({
+        kendo: globalThis.kendo && typeof globalThis.kendo.version === "string" ? globalThis.kendo.version : "",
+        jquery: globalThis.jQuery && globalThis.jQuery.fn && typeof globalThis.jQuery.fn.jquery === "string" ? globalThis.jQuery.fn.jquery : "",
+      }),
     });
-    return got?.result || "";
+    return got?.result || { kendo: "", jquery: "" };
   } catch {
-    return "";
+    return { kendo: "", jquery: "" };
   }
 }
 
@@ -199,13 +199,13 @@ async function scan() {
   }
   try {
     const definitions = await loadDefinitions();
-    const [payload, kendoVersion] = await Promise.all([readPage(tab.id, definitions.handlers), readKendo(tab.id)]);
+    const [payload, runtime] = await Promise.all([readPage(tab.id, definitions.handlers), readRuntime(tab.id)]);
     if (!payload) {
       showError("The tab returned an empty read.");
       return;
     }
     const assets = await readAssets(`${payload.html || ""}\n${payload.liveHtml || ""}`, payload.pageUrl || tab.url);
-    render(summarize({ ...payload, kendoVersion, assets }));
+    render(summarize({ ...payload, kendoVersion: runtime.kendo, jqueryVersion: runtime.jquery, assets }));
   } catch (error) {
     const message = error && error.message ? error.message : "The read failed.";
     showError(
