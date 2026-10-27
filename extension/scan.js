@@ -528,7 +528,7 @@ export function assessVersion(version, product, handlers) {
         else if (advisory.ceiling && compareAdvisory(advisory, version, advisory.ceiling) <= 0) status = "in-range";
         else if (advisory.ceiling && compareAdvisory(advisory, version, advisory.ceiling) > 0) status = "transitional";
       }
-      return { id: advisory.id, title: advisory.title, status, detail, kev: advisory.kev, epss: advisory.epss };
+      return { id: advisory.id, title: advisory.title, status, detail, kev: advisory.kev, epss: advisory.epss, requiresHandler: advisory.requiresHandler || null };
     })
     .sort((left, right) => order[left.status] - order[right.status]);
 }
@@ -649,12 +649,22 @@ export function summarize(payload) {
     const current = best.get(hit.product);
     if (!current || (METHOD_RANK[hit.method] ?? 9) < (METHOD_RANK[current.method] ?? 9)) best.set(hit.product, hit);
   }
-  const applicable = [];
-  for (const hit of best.values()) {
+  const rank = { "aspnet-ajax": 0, kendo: 1, reporting: 2, "report-server": 3, jquery: 4, "jquery-ui": 5 };
+  const components = [...best.values()].map((hit) => {
+    const rows = [];
     for (const row of assessVersion(hit.version, hit.product, handlers)) {
       if (row.status !== "in-range") continue;
-      applicable.push({ ...row, product: hit.product, version: hit.version });
+      if (row.requiresHandler) {
+        const handler = handlers.find((item) => item.id === row.requiresHandler);
+        if (handler?.state !== "present") continue;
+      }
+      rows.push({ ...row, product: hit.product, version: hit.version });
     }
+    return { product: hit.product, version: hit.version, method: hit.method, advisories: rows };
+  });
+  components.sort((left, right) => (rank[left.product] ?? 9) - (rank[right.product] ?? 9));
+  if (!components.some((item) => item.product === "aspnet-ajax") && handlers.some((row) => (row.id === "rau" || row.id === "dialog") && row.state === "present")) {
+    components.unshift({ product: "aspnet-ajax", version: null, method: null, advisories: [] });
   }
   const notes = buildNotes(headline, handlers, signals);
   if (payload.login) {
@@ -667,7 +677,8 @@ export function summarize(payload) {
   }
   return {
     headline,
-    advisories: applicable,
+    advisories: components.flatMap((item) => item.advisories),
+    components,
     handlers,
     signals,
     notes,

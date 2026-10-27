@@ -1215,6 +1215,7 @@ def assess_version(version: Optional[str], product: Optional[str], handlers: Opt
                 "detail": detail,
                 "kev": bool(advisory.get("kev")),
                 "epss": advisory.get("epss"),
+                "requiresHandler": advisory.get("requiresHandler"),
             }
         )
     order = {"in-range": 0, "transitional": 1, "unplaced": 2, "outside": 3, "above-fix": 4}
@@ -1682,14 +1683,26 @@ def scan_one(args, url: str) -> dict:
             if current is None or METHOD_RANK.get(hit["method"], 9) < METHOD_RANK.get(current["method"], 9):
                 best[hit["product"]] = hit
         advisories = []
+        components = []
         for hit in best.values():
+            rows = []
             for row in assess_version(hit["version"], hit["product"], chosen):
                 if row["status"] != "in-range":
                     continue
+                if row.get("requiresHandler"):
+                    handler = next((item for item in chosen if item.get("id") == row["requiresHandler"]), None)
+                    if not handler or handler.get("state") != "present":
+                        continue
                 stamped = dict(row)
                 stamped["product"] = hit["product"]
                 stamped["version"] = hit["version"]
-                advisories.append(stamped)
+                rows.append(stamped)
+            components.append({"product": hit["product"], "version": hit["version"], "method": hit["method"], "advisories": rows})
+            advisories.extend(rows)
+        if not any(item["product"] == "aspnet-ajax" for item in components) and any(
+            row["id"] in ("rau", "dialog") and row["state"] == "present" for row in chosen
+        ):
+            components.insert(0, {"product": "aspnet-ajax", "version": None, "method": None, "advisories": []})
         elapsed = int((time.time() - started) * 1000)
         return {
             "ok": True,
@@ -1697,6 +1710,7 @@ def scan_one(args, url: str) -> dict:
             "finalUrl": page.final_url,
             "headline": headline,
             "advisories": advisories,
+            "components": components,
             "versions": versions,
             "handlers": chosen,
             "signals": signals,
@@ -1774,7 +1788,12 @@ def render_text(result: dict) -> str:
     lines.append("handlers:")
     for row in result.get("handlers") or []:
         lines.append("  %-18s %-8s %s  %s" % (row["name"], row["state"], row["status"], row["detail"]))
-    if result.get("advisories"):
+    if result.get("components"):
+        for component in result["components"]:
+            lines.append("component: %s %s" % (component.get("product") or "", component.get("version") or "unread"))
+            for row in component.get("advisories") or []:
+                lines.append("  %-16s %-13s %s" % (row["id"], row["status"], row["title"]))
+    elif result.get("advisories"):
         lines.append("published ranges:")
         seen = None
         for row in result["advisories"]:

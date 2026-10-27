@@ -1,4 +1,4 @@
-import { METHOD_LABEL, PRODUCT_LABEL, STATUS_LABEL, applyDefinitions, assetTargets, channelLine, confirmAsset, currentDefinitions, setDefinitionSource, summarize } from "./scan.js";
+import { METHOD_LABEL, PRODUCT_LABEL, STATUS_LABEL, applyDefinitions, assetTargets, confirmAsset, currentDefinitions, setDefinitionSource, summarize } from "./scan.js";
 
 const defsLine = document.querySelector("#defs");
 const out = document.querySelector("#out");
@@ -20,39 +20,23 @@ function el(tag, className, text) {
 
 function render(result) {
   out.replaceChildren();
-  const headline = result.headline;
-  const card = el("section", "card");
-  card.append(
-    el("p", "kicker", headline.product ? PRODUCT_LABEL[headline.product] : "Version"),
-    el("p", "version", headline.version || "Unread"),
-    el("p", "summary", headline.summary),
-  );
-  const methodLabel = headline.method ? METHOD_LABEL[headline.method] || headline.method : "";
-  const channel = channelLine(headline);
-  const method = channel && channel.toLowerCase() !== methodLabel.toLowerCase() ? `${methodLabel} · ${channel}` : methodLabel;
-  if (method) card.append(el("p", "method", method));
-  if (headline.conflict && headline.alternates.length) {
-    card.append(el("p", "warn", `Other builds: ${headline.alternates.join(", ")}`));
-  }
-  const meta = [result.server, result.aspNet ? `ASP.NET ${result.aspNet}` : ""].filter(Boolean).join(" · ");
-  if (meta) card.append(el("p", "meta", meta));
-  out.append(card);
-
-  if (result.advisories.length) {
-    const block = el("section", "card");
-    block.append(el("h2", "heading", "Published ranges"));
-    const groups = new Map();
-    for (const row of result.advisories) {
-      const key = `${row.product || ""}|${row.version || ""}`;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(row);
-    }
-    for (const rows of groups.values()) {
-      const first = rows[0];
-      const name = PRODUCT_LABEL[first.product] || first.product || "Component";
-      block.append(el("p", "summary", `${name} ${first.version || ""}`.trim()));
+  const components = result.components?.length
+    ? result.components
+    : [{ product: result.headline.product, version: result.headline.version, method: result.headline.method, advisories: result.advisories || [] }];
+  for (const component of components) {
+    const card = el("section", "card");
+    card.append(
+      el("p", "kicker", component.product ? PRODUCT_LABEL[component.product] || component.product : "Version"),
+      el("p", "version", component.version || "Unread"),
+    );
+    const methodLabel = component.method ? METHOD_LABEL[component.method] || component.method : "";
+    const serverStated = component.method === "assembly" || component.method === "resource-query" || component.method === "html-comment";
+    if (methodLabel) card.append(el("p", "method", serverStated ? `${methodLabel} · server-stated` : methodLabel));
+    else if (!component.version) card.append(el("p", "summary", "The handler answered. The build was not read, so no ranges are shown."));
+    if (component.advisories?.length) {
+      card.append(el("h2", "heading", "Published ranges"));
       const table = el("div", "rows");
-      for (const row of rows) {
+      for (const row of component.advisories) {
         const line = el("div", "row");
         line.append(el("span", "mono", row.id), el("span", `status ${row.status}`, `${row.kev ? "KEV · " : ""}${STATUS_LABEL[row.status] || row.status}${typeof row.epss === "number" ? ` · EPSS ${(row.epss * 100).toFixed(1)}%` : ""}`));
         const detail = el("p", "detail");
@@ -60,10 +44,12 @@ function render(result) {
         line.append(detail);
         table.append(line);
       }
-      block.append(table);
+      card.append(table);
     }
-    out.append(block);
+    out.append(card);
   }
+  const meta = [result.server, result.aspNet ? `ASP.NET ${result.aspNet}` : ""].filter(Boolean).join(" · ");
+  if (meta) out.append(el("p", "meta", meta));
 
   const handlers = el("section", "card");
   handlers.append(el("h2", "heading", "Handlers"));

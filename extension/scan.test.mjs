@@ -128,6 +128,26 @@ test("lists only ranges that include the build that was read", () => {
   assert.ok(kendo.advisories.every((row) => !row.id.startsWith("CVE-2017") && !row.id.startsWith("CVE-2019-18935")));
 });
 
+test("does not attach Kendo ranges to the ASP.NET AJAX build", () => {
+  const result = summarize({
+    pageUrl: "https://app.example/",
+    html: "<!-- 2026.3.812.462 -->",
+    liveHtml: "",
+    kendoVersion: "2020.2.617",
+    handlers: [
+      { id: "rau", name: "RadAsyncUpload", status: 200, body: "RadAsyncUpload handler is registered succesfully.", offHost: false, finalUrl: "https://app.example/rau" },
+      { id: "dialog", name: "DialogHandler", status: 200, body: "HandlerCheckOK", offHost: false, finalUrl: "https://app.example/dialog" },
+    ],
+  });
+  const ajax = result.components.find((item) => item.product === "aspnet-ajax");
+  const kendoRow = result.components.find((item) => item.product === "kendo");
+  assert.equal(ajax.version, "2026.3.812.462");
+  assert.equal(ajax.advisories.length, 0);
+  assert.ok(kendoRow.advisories.length > 0);
+  assert.ok(kendoRow.advisories.every((row) => row.product === "kendo"));
+  assert.ok(result.advisories.every((row) => row.product !== "aspnet-ajax"));
+});
+
 test("a higher definition version replaces the packed catalog", () => {
   const packed = currentDefinitions().version;
   assert.equal(applyDefinitions({ version: packed - 1, advisories: [{ id: "CVE-1", title: "x", product: "kendo", fixed: "2099.1.100", detail: "" }], handlers: [{ id: "rau", path: "x" }] }), false);
