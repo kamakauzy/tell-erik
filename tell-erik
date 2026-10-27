@@ -216,6 +216,8 @@ def classify_handler(handler_id: str, status: int, body: str) -> Tuple[str, str]
         return "unknown", "HTTP %d" % status
     if status == 0:
         return "unknown", "No response"
+    if status == 200 and len(body) >= 200 and re.search(r"<!doctype html|<html[\s>]|<title>", body, re.I):
+        return "unknown", "The response was the application page."
     return "unknown", "HTTP %d, no fingerprint" % status
 
 
@@ -622,6 +624,9 @@ def build_notes(headline: dict, handlers: Sequence[dict], signals: Sequence[str]
         notes.append(
             "RadAsyncUpload answered GET. The registration string uses the vendor spelling “succesfully”."
         )
+    dialog = next((row for row in handlers if row["id"] == "dialog"), None)
+    if headline.get("product") == "kendo" and rau and rau["state"] == "present" and dialog and dialog["state"] == "present":
+        notes.append("RadAsyncUpload and DialogHandler answered. The ASP.NET AJAX build was not in the page.")
     if not headline.get("version") and present:
         notes.append(
             "Handler answered. EnableHandlerEncryption encrypts WebResource URLs and drops the version comment. "

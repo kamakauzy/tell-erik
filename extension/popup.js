@@ -24,9 +24,9 @@ function render(result) {
     el("p", "version", headline.version || "Unread"),
     el("p", "summary", headline.summary),
   );
-  const method = [headline.method ? METHOD_LABEL[headline.method] || headline.method : "", channelLine(headline)]
-    .filter(Boolean)
-    .join(" · ");
+  const methodLabel = headline.method ? METHOD_LABEL[headline.method] || headline.method : "";
+  const channel = channelLine(headline);
+  const method = channel && channel.toLowerCase() !== methodLabel.toLowerCase() ? `${methodLabel} · ${channel}` : methodLabel;
   if (method) card.append(el("p", "method", method));
   if (headline.conflict && headline.alternates.length) {
     card.append(el("p", "warn", `Other builds: ${headline.alternates.join(", ")}`));

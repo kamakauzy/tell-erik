@@ -289,6 +289,9 @@ export function classifyHandler(id, status, body) {
   if (status === 404 || status === 410) return { state: "absent", detail: "Not found" };
   if (status === 401 || status === 403) return { state: "unknown", detail: `HTTP ${status}` };
   if (status === 0) return { state: "unknown", detail: "No response" };
+  if (status === 200 && text.length >= 200 && /<!doctype html|<html[\s>]|<title>/i.test(text)) {
+    return { state: "unknown", detail: "The response was the application page." };
+  }
   return { state: "unknown", detail: `HTTP ${status}, no fingerprint` };
 }
 
@@ -413,6 +416,10 @@ export function buildNotes(headline, handlers, signals) {
   if (rau?.state === "present") {
     notes.push("RadAsyncUpload answered GET. The registration string uses the vendor spelling “succesfully”.");
   }
+  const dialog = handlers.find((row) => row.id === "dialog");
+  if (headline.product === "kendo" && rau?.state === "present" && dialog?.state === "present") {
+    notes.push("RadAsyncUpload and DialogHandler answered. The ASP.NET AJAX build was not in the page.");
+  }
   if (!headline.version && present) {
     notes.push(
       "Handler answered. EnableHandlerEncryption encrypts WebResource URLs and drops the version comment. The build is on the CDN path, or on a page that still prints the comment.",
@@ -458,13 +465,16 @@ export function summarize(payload) {
     });
   }
   const signals = markupSignals(`${payload.html || ""}\n${payload.liveHtml || ""}`);
-  const handlers = (payload.handlers || []).map((row) => {
-    if (row.offHost) {
-      return { id: row.id, name: row.name, url: row.finalUrl || row.url, status: row.status, state: "unknown", detail: "Redirect left the host." };
-    }
-    const classified = classifyHandler(row.id, row.status, row.body || "");
-    return { id: row.id, name: row.name, url: row.finalUrl || row.url, status: row.status, ...classified };
-  });
+  const handlers = [];
+  const seen = new Map();
+  for (const row of payload.handlers || []) {
+    const item = row.offHost
+      ? { id: row.id, name: row.name, url: row.finalUrl || row.url, status: row.status, state: "unknown", detail: "Redirect left the host." }
+      : { id: row.id, name: row.name, url: row.finalUrl || row.url, status: row.status, ...classifyHandler(row.id, row.status, row.body || "") };
+    const previous = seen.get(item.id);
+    if (!previous || (previous.state !== "present" && item.state === "present")) seen.set(item.id, item);
+  }
+  for (const item of seen.values()) handlers.push(item);
   let headline = buildHeadline(versions, verdicts);
   if (!headline.version && signals.length) headline = { ...headline, summary: "Version unread. The page references the suite." };
   else if (!headline.version && handlers.some((row) => row.state === "present")) {
