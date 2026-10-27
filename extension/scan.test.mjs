@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assessVersion, assetTargets, buildHeadline, classifyHandler, confirmAsset, extractVersions, summarize } from "./scan.js";
+import { applyDefinitions, assessVersion, assetTargets, buildHeadline, classifyHandler, confirmAsset, currentDefinitions, extractVersions, summarize } from "./scan.js";
 
 const PAGE = `<!doctype html><html><head>
 <link rel="stylesheet" href="https://cdn.example.com/docs.css?v=2024.2.514" />
@@ -86,4 +86,23 @@ test("summarizes a page payload and a live kendo.version", () => {
   assert.equal(result.headline.channel, "server");
   assert.equal(result.handlers.filter((row) => row.state === "present").length, 2);
   assert.ok(result.versions.some((hit) => hit.version === "2021.1.119" && hit.method === "script-banner"));
+});
+
+test("a higher definition version replaces the packed catalog", () => {
+  const packed = currentDefinitions().version;
+  assert.equal(applyDefinitions({ version: packed - 1, advisories: [{ id: "CVE-1", title: "x", product: "kendo", fixed: "2099.1.100", detail: "" }], handlers: [{ id: "rau", path: "x" }] }), false);
+  const doc = {
+    version: packed + 1,
+    advisories: [{ id: "CVE-2099-1", title: "Example", product: "kendo", floor: null, ceiling: null, fixed: "2099.1.100", detail: "Example range." }],
+    handlers: [{ id: "rau", name: "RadAsyncUpload", path: "Telerik.Web.UI.WebResource.axd?type=rau", present: "registered succes+fully", detail: "Matched the pushed fingerprint." }],
+  };
+  assert.equal(applyDefinitions(doc), true);
+  assert.equal(currentDefinitions().version, packed + 1);
+  assert.equal(assessVersion("2020.2.617", "kendo")[0].id, "CVE-2099-1");
+  assert.equal(classifyHandler("rau", 200, "registered succesfully.").detail, "Matched the pushed fingerprint.");
+  applyDefinitions({
+    version: packed + 2,
+    advisories: [{ id: "CVE-2017-9248", title: "DialogHandler cryptographic weakness", product: "aspnet-ajax", floor: null, ceiling: null, fixed: "2017.2.621", detail: "Builds before 2017.2.621. Confirm the key in use separately." }],
+    handlers: [{ id: "rau", name: "RadAsyncUpload", path: "Telerik.Web.UI.WebResource.axd?type=rau", present: "RadAsyncUpload handler is registered succes+fully", detail: "Registration message, including the vendor spelling." }],
+  });
 });

@@ -50,156 +50,85 @@ const METHOD_RANK = {
 
 const PRODUCT_RANK = { "aspnet-ajax": 0, reporting: 1, kendo: 2 };
 
-const ADVISORIES = [
-  {
-    id: "CVE-2017-9248",
-    title: "DialogHandler cryptographic weakness",
-    floor: null,
-    ceiling: null,
-    fixed: "2017.2.621",
-    detail: "Builds before 2017.2.621. Confirm the key in use separately.",
-  },
-  {
-    id: "CVE-2019-18935",
-    title: "RadAsyncUpload deserialization",
-    floor: null,
-    ceiling: "2019.3.1023",
-    fixed: "2020.1.114",
-    detail: "Through 2019.3.1023. 2020.1.114 blocks the default path. Known encryption material changes the picture.",
-  },
-  {
-    id: "CVE-2025-3600",
-    title: "Image editor unsafe reflection",
-    floor: "2011.2.712",
-    ceiling: "2025.1.218",
-    fixed: "2025.1.416",
-    detail: "2011.2.712 through 2025.1.218. Fixed in 2025.1.416.",
-  },
-  {
-    id: "CVE-2026-13181",
-    title: "RadAsyncUpload cryptographic chain",
-    floor: "2010.1.309",
-    ceiling: "2026.2.519",
-    fixed: "2026.2.708",
-    detail: "Through 2026.2.519. Fixed in 2026.2.708. Requires a non-default encryption key.",
-  },
-  {
-    id: "CVE-2026-18672",
-    title: "Image editor file read",
-    floor: "2011.2.712",
-    ceiling: "2026.2.708",
-    fixed: "2026.3.812",
-    detail: "2011.2.712 through 2026.2.708 inclusive. Fixed in 2026.3.812. Requires a static machineKey or dialog key.",
-  },
-  {
-    id: "CVE-2026-106149",
-    title: "Menu attribute XSS",
-    product: "kendo",
-    floor: "2011.2.804",
-    ceiling: null,
-    fixed: "2026.3.1015",
-    detail: "Kendo UI for jQuery. CVSS 5.4. Menu dataSource attributes, from 2011.2.804. Fixed in 2026.3.1015.",
-  },
-  {
-    id: "CVE-2026-106148",
-    title: "TabStrip, Menu, and PanelBar image URL XSS",
-    product: "kendo",
-    floor: "2011.2.804",
-    ceiling: null,
-    fixed: "2026.3.1015",
-    detail: "Kendo UI for jQuery. CVSS 5.4. Vendor table starts at 2011.2.804. Fixed in 2026.3.1015. The earliest build was not confirmed.",
-  },
-  {
-    id: "CVE-2026-106150",
-    title: "Splitter, Window, and Tooltip iframe XSS",
-    product: "kendo",
-    floor: "2011.2.804",
-    ceiling: null,
-    fixed: "2026.3.1015",
-    detail: "Kendo UI for jQuery. CVSS 5.4. Splitter and Window from 2011.2.804. Tooltip from 2013.1.319. Fixed in 2026.3.1015.",
-  },
-  {
-    id: "CVE-2026-106153",
-    title: "Calendar template XSS",
-    product: "kendo",
-    floor: "2011.3.1007",
-    ceiling: null,
-    fixed: "2026.3.1015",
-    detail: "Kendo UI for jQuery. Calendar and MultiViewCalendar from 2011.3.1007. Fixed in 2026.3.1015.",
-  },
-  {
-    id: "CVE-2026-106151",
-    title: "Validator message XSS",
-    product: "kendo",
-    floor: "2012.2.710",
-    ceiling: null,
-    fixed: "2026.3.1015",
-    detail: "Kendo UI for jQuery. CVSS 5.4. From 2012.2.710. Fixed in 2026.3.1015.",
-  },
-  {
-    id: "CVE-2026-106158",
-    title: "Scheduler resource color XSS",
-    product: "kendo",
-    floor: "2014.3.1119",
-    ceiling: null,
-    fixed: "2026.3.1015",
-    detail: "Kendo UI for jQuery. CVSS 4.7. From 2014.3.1119. Fixed in 2026.3.1015.",
-  },
-  {
-    id: "CVE-2026-106157",
-    title: "PanelBar item URL XSS",
-    product: "kendo",
-    floor: "2019.2.514",
-    ceiling: null,
-    fixed: "2026.3.1015",
-    detail: "Kendo UI for jQuery. CVSS 4.7. From 2019.2.514. Fixed in 2026.3.1015.",
-  },
-  {
-    id: "CVE-2026-106147",
-    title: "ListBox bound text XSS",
-    product: "kendo",
-    floor: "2020.1.114",
-    ceiling: null,
-    fixed: "2026.3.1015",
-    detail: "Kendo UI for jQuery. CVSS 5.4. From 2020.1.114. Fixed in 2026.3.1015.",
-  },
-  {
-    id: "CVE-2026-106161",
-    title: "Badge text XSS",
-    product: "kendo",
-    floor: "2020.1.114",
-    ceiling: null,
-    fixed: "2026.3.1015",
-    detail: "Kendo UI for jQuery. CVSS 5.4. From 2020.1.114. Fixed in 2026.3.1015.",
-  },
-  {
-    id: "CVE-2025-6725",
-    title: "PdfViewer XSS",
-    product: "kendo",
-    floor: "2024.4.1112",
-    ceiling: "2025.2.520",
-    fixed: "2025.2.702",
-    detail: "Kendo UI for jQuery. CVSS 5.4. 2024.4.1112 through 2025.2.520. Fixed in 2025.2.702.",
-  },
-  {
-    id: "CVE-2026-106163",
-    title: "FileBrowser and ImageBrowser XSS",
-    product: "kendo",
-    floor: "2023.1.117",
-    ceiling: null,
-    fixed: "2026.3.1015",
-    detail: "Kendo UI for jQuery. CVSS 6.5. From 2023.1.117. Fixed in 2026.3.1015.",
-  },
-  {
-    id: "CVE-2026-106160",
-    title: "Model.accept prototype pollution",
-    product: "kendo",
-    floor: "2023.1.117",
-    ceiling: null,
-    fixed: "2026.3.1015",
-    detail: "Kendo UI for jQuery. CVSS 5.4. Vendor lists 2023.1.117 as the start. Fixed in 2026.3.1015.",
-  },
-];
+import bundledDefinitions from "./definitions.json" with { type: "json" };
+
+let advisories = [];
+let handlerRules = [];
+let probes = [];
+let definitionMeta = { version: 0, source: "none" };
+
+function compileHandlers(rows) {
+  const compiled = [];
+  for (const row of rows || []) {
+    if (!row || typeof row.id !== "string" || typeof row.path !== "string") continue;
+    let present = null;
+    if (row.present) {
+      try {
+        present = new RegExp(String(row.present).slice(0, 200), "i");
+      } catch {
+        present = null;
+      }
+    }
+    compiled.push({
+      id: String(row.id).slice(0, 32),
+      name: String(row.name || row.id).slice(0, 80),
+      path: String(row.path).slice(0, 200),
+      present,
+      detail: String(row.detail || "Fingerprint matched.").slice(0, 180),
+      maxLength: Number(row.maxLength) > 0 ? Number(row.maxLength) : 0,
+    });
+  }
+  return compiled;
+}
+
+function normalizeDefinitions(doc) {
+  if (!doc || typeof doc.version !== "number" || !Array.isArray(doc.advisories) || !Array.isArray(doc.handlers)) return null;
+  const nextAdvisories = [];
+  for (const row of doc.advisories) {
+    if (!row || typeof row.id !== "string" || typeof row.fixed !== "string") continue;
+    if (row.product !== "aspnet-ajax" && row.product !== "kendo" && row.product !== "reporting") continue;
+    nextAdvisories.push({
+      id: String(row.id).slice(0, 40),
+      title: String(row.title || row.id).slice(0, 140),
+      product: row.product,
+      floor: row.floor || null,
+      ceiling: row.ceiling || null,
+      fixed: String(row.fixed).slice(0, 32),
+      detail: String(row.detail || "").slice(0, 400),
+    });
+  }
+  const nextHandlers = compileHandlers(doc.handlers);
+  if (!nextAdvisories.length || !nextHandlers.length) return null;
+  return {
+    version: doc.version,
+    advisories: nextAdvisories,
+    handlers: nextHandlers,
+    probes: nextHandlers.map((row) => ({ id: row.id, name: row.name, path: row.path })),
+  };
+}
+
+export function applyDefinitions(doc) {
+  const accepted = normalizeDefinitions(doc);
+  if (!accepted) return false;
+  if (accepted.version < definitionMeta.version) return false;
+  advisories = accepted.advisories;
+  handlerRules = accepted.handlers;
+  probes = accepted.probes;
+  definitionMeta = { version: accepted.version, source: definitionMeta.source || "bundled" };
+  return true;
+}
+
+export function setDefinitionSource(source) {
+  definitionMeta = { ...definitionMeta, source };
+}
+
+export function currentDefinitions() {
+  return { version: definitionMeta.version, source: definitionMeta.source, handlers: probes };
+}
+
+applyDefinitions(bundledDefinitions);
+definitionMeta = { ...definitionMeta, source: "bundled" };
+
 
 export const STATUS_LABEL = {
   "in-range": "In published range",
@@ -388,12 +317,9 @@ export function markupSignals(body) {
 
 export function classifyHandler(id, status, body) {
   const text = String(body || "");
-  if (id === "rau" && /RadAsyncUpload handler is registered succes+fully/i.test(text)) {
-    return { state: "present", detail: "Registration message, including the vendor spelling." };
-  }
-  if (id === "dialog" && /HandlerCheckOK/i.test(text)) return { state: "present", detail: "HandlerCheckOK" };
-  if (id === "report" && status === 200 && text.length < 20000 && /Telerik\.ReportViewer|ReportViewerHandler/i.test(text)) {
-    return { state: "present", detail: "Report viewer marker" };
+  const rule = handlerRules.find((row) => row.id === id);
+  if (rule?.present && (!rule.maxLength || text.length < rule.maxLength) && rule.present.test(text)) {
+    return { state: "present", detail: rule.detail };
   }
   if (status === 404 || status === 410) return { state: "absent", detail: "Not found" };
   if (status === 401 || status === 403) return { state: "unknown", detail: `HTTP ${status}` };
@@ -509,7 +435,7 @@ export function channelLine(headline) {
 export function assessVersion(version, product) {
   if (!version || (product !== "aspnet-ajax" && product !== "kendo")) return [];
   const order = { "in-range": 0, transitional: 1, unplaced: 2, outside: 3, "above-fix": 4 };
-  return ADVISORIES.filter((advisory) => (advisory.product || "aspnet-ajax") === product)
+  return advisories.filter((advisory) => (advisory.product || "aspnet-ajax") === product)
     .map((advisory) => {
       let status = "in-range";
       if (compareProduct(version, advisory.fixed) >= 0) status = "above-fix";
@@ -523,7 +449,7 @@ export function assessVersion(version, product) {
 
 export function unplacedAdvisories(product) {
   const library = product === "kendo" ? "Kendo UI for jQuery" : "Telerik UI for ASP.NET AJAX";
-  return ADVISORIES.filter((advisory) => (advisory.product || "aspnet-ajax") === product).map((advisory) => ({
+  return advisories.filter((advisory) => (advisory.product || "aspnet-ajax") === product).map((advisory) => ({
     id: advisory.id,
     title: advisory.title,
     status: "unplaced",

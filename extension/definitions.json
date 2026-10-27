@@ -1,0 +1,192 @@
+{
+  "version": 1,
+  "advisories": [
+    {
+      "id": "CVE-2017-9248",
+      "title": "DialogHandler cryptographic weakness",
+      "floor": null,
+      "ceiling": null,
+      "fixed": "2017.2.621",
+      "detail": "Builds before 2017.2.621. Confirm the key in use separately."
+    },
+    {
+      "id": "CVE-2019-18935",
+      "title": "RadAsyncUpload deserialization",
+      "floor": null,
+      "ceiling": "2019.3.1023",
+      "fixed": "2020.1.114",
+      "detail": "Through 2019.3.1023. 2020.1.114 blocks the default path. Known encryption material changes the picture."
+    },
+    {
+      "id": "CVE-2025-3600",
+      "title": "Image editor unsafe reflection",
+      "floor": "2011.2.712",
+      "ceiling": "2025.1.218",
+      "fixed": "2025.1.416",
+      "detail": "2011.2.712 through 2025.1.218. Fixed in 2025.1.416."
+    },
+    {
+      "id": "CVE-2026-13181",
+      "title": "RadAsyncUpload cryptographic chain",
+      "floor": "2010.1.309",
+      "ceiling": "2026.2.519",
+      "fixed": "2026.2.708",
+      "detail": "Through 2026.2.519. Fixed in 2026.2.708. Requires a non-default encryption key."
+    },
+    {
+      "id": "CVE-2026-18672",
+      "title": "Image editor file read",
+      "floor": "2011.2.712",
+      "ceiling": "2026.2.708",
+      "fixed": "2026.3.812",
+      "detail": "2011.2.712 through 2026.2.708 inclusive. Fixed in 2026.3.812. Requires a static machineKey or dialog key."
+    },
+    {
+      "id": "CVE-2026-106149",
+      "title": "Menu attribute XSS",
+      "product": "kendo",
+      "floor": "2011.2.804",
+      "ceiling": null,
+      "fixed": "2026.3.1015",
+      "detail": "Kendo UI for jQuery. CVSS 5.4. Menu dataSource attributes, from 2011.2.804. Fixed in 2026.3.1015."
+    },
+    {
+      "id": "CVE-2026-106148",
+      "title": "TabStrip, Menu, and PanelBar image URL XSS",
+      "product": "kendo",
+      "floor": "2011.2.804",
+      "ceiling": null,
+      "fixed": "2026.3.1015",
+      "detail": "Kendo UI for jQuery. CVSS 5.4. Vendor table starts at 2011.2.804. Fixed in 2026.3.1015. The earliest build was not confirmed."
+    },
+    {
+      "id": "CVE-2026-106150",
+      "title": "Splitter, Window, and Tooltip iframe XSS",
+      "product": "kendo",
+      "floor": "2011.2.804",
+      "ceiling": null,
+      "fixed": "2026.3.1015",
+      "detail": "Kendo UI for jQuery. CVSS 5.4. Splitter and Window from 2011.2.804. Tooltip from 2013.1.319. Fixed in 2026.3.1015."
+    },
+    {
+      "id": "CVE-2026-106153",
+      "title": "Calendar template XSS",
+      "product": "kendo",
+      "floor": "2011.3.1007",
+      "ceiling": null,
+      "fixed": "2026.3.1015",
+      "detail": "Kendo UI for jQuery. Calendar and MultiViewCalendar from 2011.3.1007. Fixed in 2026.3.1015."
+    },
+    {
+      "id": "CVE-2026-106151",
+      "title": "Validator message XSS",
+      "product": "kendo",
+      "floor": "2012.2.710",
+      "ceiling": null,
+      "fixed": "2026.3.1015",
+      "detail": "Kendo UI for jQuery. CVSS 5.4. From 2012.2.710. Fixed in 2026.3.1015."
+    },
+    {
+      "id": "CVE-2026-106158",
+      "title": "Scheduler resource color XSS",
+      "product": "kendo",
+      "floor": "2014.3.1119",
+      "ceiling": null,
+      "fixed": "2026.3.1015",
+      "detail": "Kendo UI for jQuery. CVSS 4.7. From 2014.3.1119. Fixed in 2026.3.1015."
+    },
+    {
+      "id": "CVE-2026-106157",
+      "title": "PanelBar item URL XSS",
+      "product": "kendo",
+      "floor": "2019.2.514",
+      "ceiling": null,
+      "fixed": "2026.3.1015",
+      "detail": "Kendo UI for jQuery. CVSS 4.7. From 2019.2.514. Fixed in 2026.3.1015."
+    },
+    {
+      "id": "CVE-2026-106147",
+      "title": "ListBox bound text XSS",
+      "product": "kendo",
+      "floor": "2020.1.114",
+      "ceiling": null,
+      "fixed": "2026.3.1015",
+      "detail": "Kendo UI for jQuery. CVSS 5.4. From 2020.1.114. Fixed in 2026.3.1015."
+    },
+    {
+      "id": "CVE-2026-106161",
+      "title": "Badge text XSS",
+      "product": "kendo",
+      "floor": "2020.1.114",
+      "ceiling": null,
+      "fixed": "2026.3.1015",
+      "detail": "Kendo UI for jQuery. CVSS 5.4. From 2020.1.114. Fixed in 2026.3.1015."
+    },
+    {
+      "id": "CVE-2025-6725",
+      "title": "PdfViewer XSS",
+      "product": "kendo",
+      "floor": "2024.4.1112",
+      "ceiling": "2025.2.520",
+      "fixed": "2025.2.702",
+      "detail": "Kendo UI for jQuery. CVSS 5.4. 2024.4.1112 through 2025.2.520. Fixed in 2025.2.702."
+    },
+    {
+      "id": "CVE-2026-106163",
+      "title": "FileBrowser and ImageBrowser XSS",
+      "product": "kendo",
+      "floor": "2023.1.117",
+      "ceiling": null,
+      "fixed": "2026.3.1015",
+      "detail": "Kendo UI for jQuery. CVSS 6.5. From 2023.1.117. Fixed in 2026.3.1015."
+    },
+    {
+      "id": "CVE-2026-106160",
+      "title": "Model.accept prototype pollution",
+      "product": "kendo",
+      "floor": "2023.1.117",
+      "ceiling": null,
+      "fixed": "2026.3.1015",
+      "detail": "Kendo UI for jQuery. CVSS 5.4. Vendor lists 2023.1.117 as the start. Fixed in 2026.3.1015."
+    }
+  ],
+  "handlers": [
+    {
+      "id": "rau",
+      "name": "RadAsyncUpload",
+      "path": "Telerik.Web.UI.WebResource.axd?type=rau",
+      "present": "RadAsyncUpload handler is registered succes+fully",
+      "detail": "Registration message, including the vendor spelling."
+    },
+    {
+      "id": "dialog",
+      "name": "DialogHandler",
+      "path": "Telerik.Web.UI.DialogHandler.aspx?checkHandler=true",
+      "present": "HandlerCheckOK",
+      "detail": "HandlerCheckOK"
+    },
+    {
+      "id": "spell",
+      "name": "SpellCheckHandler",
+      "path": "Telerik.Web.UI.SpellCheckHandler.axd"
+    },
+    {
+      "id": "iec",
+      "name": "ImageEditor cache",
+      "path": "Telerik.Web.UI.WebResource.axd?type=iec"
+    },
+    {
+      "id": "chart",
+      "name": "ChartImage",
+      "path": "ChartImage.axd"
+    },
+    {
+      "id": "report",
+      "name": "ReportViewer",
+      "path": "Telerik.ReportViewer.axd",
+      "present": "Telerik\\\\.ReportViewer|ReportViewerHandler",
+      "maxLength": 20000,
+      "detail": "Report viewer marker"
+    }
+  ]
+}

@@ -1,8 +1,8 @@
-globalThis.__tellErikCollect = async function tellErikCollect() {
+globalThis.__tellErikCollect = async function tellErikCollect(handlerDefs) {
   const MAX = 800000;
   const origin = location.origin;
   const pageUrl = location.href;
-  const handlers = [
+  const fallback = [
     ["rau", "RadAsyncUpload", "Telerik.Web.UI.WebResource.axd?type=rau"],
     ["dialog", "DialogHandler", "Telerik.Web.UI.DialogHandler.aspx?checkHandler=true"],
     ["spell", "SpellCheckHandler", "Telerik.Web.UI.SpellCheckHandler.axd"],
@@ -10,6 +10,9 @@ globalThis.__tellErikCollect = async function tellErikCollect() {
     ["chart", "ChartImage", "ChartImage.axd"],
     ["report", "ReportViewer", "Telerik.ReportViewer.axd"],
   ];
+  const handlers = Array.isArray(handlerDefs) && handlerDefs.length
+    ? handlerDefs.filter((row) => row && row.id && row.path).map((row) => [row.id, row.name || row.id, row.path])
+    : fallback;
 
   function sameOrigin(url) {
     try {

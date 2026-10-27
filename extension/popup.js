@@ -1,7 +1,10 @@
-import { METHOD_LABEL, PRODUCT_LABEL, STATUS_LABEL, assetTargets, channelLine, confirmAsset, summarize } from "./scan.js";
+import { METHOD_LABEL, PRODUCT_LABEL, STATUS_LABEL, applyDefinitions, assetTargets, channelLine, confirmAsset, currentDefinitions, setDefinitionSource, summarize } from "./scan.js";
 
+const defsLine = document.querySelector("#defs");
 const out = document.querySelector("#out");
 const host = document.querySelector("#host");
+const REMOTE_DEFINITIONS = "https://raw.githubusercontent.com/kamakauzy/tell-erik/main/extension/definitions.json";
+const DEFINITION_KEY = "tellErikDefinitions";
 const CDN_HOSTS = new Set([
   "d35islomi5rx1v.cloudfront.net",
   "kendo.cdn.telerik.com",
@@ -81,6 +84,37 @@ function showError(message) {
   out.append(card);
 }
 
+async function loadDefinitions() {
+  let source = currentDefinitions().source;
+  try {
+    const stored = await chrome.storage.local.get(DEFINITION_KEY);
+    const cached = stored[DEFINITION_KEY];
+    if (cached && cached.version > currentDefinitions().version && applyDefinitions(cached)) source = "saved";
+  } catch {
+    source = currentDefinitions().source;
+  }
+  try {
+    const response = await fetch(REMOTE_DEFINITIONS, { cache: "no-store", signal: AbortSignal.timeout(2500) });
+    if (response.ok) {
+      const remote = await response.json();
+      if (remote && remote.version > currentDefinitions().version && applyDefinitions(remote)) {
+        source = "repo";
+        try {
+          await chrome.storage.local.set({ [DEFINITION_KEY]: remote });
+        } catch {
+          source = "repo";
+        }
+      }
+    }
+  } catch {
+    // The bundled file, or the last saved copy, stays in use.
+  }
+  setDefinitionSource(source);
+  const current = currentDefinitions();
+  if (defsLine) defsLine.textContent = `definitions ${current.version} · ${current.source}`;
+  return current;
+}
+
 async function readAssets(html, pageUrl) {
   const verdicts = [];
   for (const target of assetTargets(html, pageUrl)) {
@@ -131,11 +165,12 @@ async function readKendo(tabId) {
   }
 }
 
-async function readPage(tabId) {
+async function readPage(tabId, handlers) {
   await chrome.scripting.executeScript({ target: { tabId }, files: ["collect.js"] });
   const [got] = await chrome.scripting.executeScript({
     target: { tabId },
-    func: () => globalThis.__tellErikCollect(),
+    func: (rows) => globalThis.__tellErikCollect(rows),
+    args: [handlers],
   });
   return got?.result;
 }
@@ -159,7 +194,8 @@ async function scan() {
     return;
   }
   try {
-    const [payload, kendoVersion] = await Promise.all([readPage(tab.id), readKendo(tab.id)]);
+    const definitions = await loadDefinitions();
+    const [payload, kendoVersion] = await Promise.all([readPage(tab.id, definitions.handlers), readKendo(tab.id)]);
     if (!payload) {
       showError("The tab returned an empty read.");
       return;
