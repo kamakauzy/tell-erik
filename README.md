@@ -1,6 +1,6 @@
 # tell-erik
 
-Version 0.1.0.
+A SecurIT360 tool. Version 0.3.0.
 
 Remote Telerik UI version enumerator.
 

@@ -1972,7 +1972,7 @@ def load_targets(args) -> List[str]:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Read the Telerik UI build exposed by a remote site."
+        description="A SecurIT360 tool. Read the Telerik UI build exposed by a remote site."
     )
     parser.add_argument("--url", help="Page that renders a Telerik control. Handlers are derived from this URL.")
     parser.add_argument("--list", help="Text file of target URLs, one per line.")
