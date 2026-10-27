@@ -1,5 +1,7 @@
 # tell-erik
 
+Version 0.1.0.
+
 Remote Telerik UI version enumerator.
 
 Reads the build from the assembly or resource-query string, the HTML version comment, the AJAX CDN path (`/ajax/<build>/` or the gzip folder `/ajaxz/<build>/`), or a Kendo CDN path or script banner. A linked CDN stylesheet or script is fetched and checked. Handlers are confirmed with GET fingerprints.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tell-erik: remote Telerik UI version enumerator.
+"""tell-erik 0.1.0: remote Telerik UI version enumerator.
 
 Reads the product build from rendered markup (HTML version comment, assembly or
 resource query, AJAX CDN path, Kendo CDN and script banners). A linked CDN
@@ -27,7 +27,7 @@ BROWSER_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
-SCANNER_UA = "tell-erik/1.0 (authorized assessment)"
+SCANNER_UA = "tell-erik/0.1.0 (authorized assessment)"
 MAX_BODY = 1_200_000
 METADATA_HOSTS = {
     "metadata.google.internal",
