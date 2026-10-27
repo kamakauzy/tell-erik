@@ -97,11 +97,15 @@ async function loadDefinitions() {
     const response = await fetch(REMOTE_DEFINITIONS, { cache: "no-store", signal: AbortSignal.timeout(2500) });
     if (response.ok) {
       const remote = await response.json();
-      if (remote && remote.version > currentDefinitions().version && applyDefinitions(remote)) {
-        source = "repo";
-        try {
-          await chrome.storage.local.set({ [DEFINITION_KEY]: remote });
-        } catch {
+      if (remote && typeof remote.version === "number") {
+        if (remote.version > currentDefinitions().version && applyDefinitions(remote)) {
+          source = "repo";
+          try {
+            await chrome.storage.local.set({ [DEFINITION_KEY]: remote });
+          } catch {
+            source = "repo";
+          }
+        } else if (remote.version === currentDefinitions().version) {
           source = "repo";
         }
       }
