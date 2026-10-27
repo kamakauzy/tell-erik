@@ -85,6 +85,114 @@ ADVISORIES = [
         "fixed": "2026.3.812",
         "detail": "2011.2.712 through 2026.2.708 inclusive. Fixed in 2026.3.812. Requires a static machineKey or dialog key.",
     },
+    {
+        "id": "CVE-2026-106149",
+        "title": "Menu attribute XSS",
+        "product": "kendo",
+        "floor": "2011.2.804",
+        "ceiling": None,
+        "fixed": "2026.3.1015",
+        "detail": "Kendo UI for jQuery. CVSS 5.4. Menu dataSource attributes, from 2011.2.804. Fixed in 2026.3.1015.",
+    },
+    {
+        "id": "CVE-2026-106148",
+        "title": "TabStrip, Menu, and PanelBar image URL XSS",
+        "product": "kendo",
+        "floor": "2011.2.804",
+        "ceiling": None,
+        "fixed": "2026.3.1015",
+        "detail": "Kendo UI for jQuery. CVSS 5.4. Vendor table starts at 2011.2.804. Fixed in 2026.3.1015. The earliest build was not confirmed.",
+    },
+    {
+        "id": "CVE-2026-106150",
+        "title": "Splitter, Window, and Tooltip iframe XSS",
+        "product": "kendo",
+        "floor": "2011.2.804",
+        "ceiling": None,
+        "fixed": "2026.3.1015",
+        "detail": "Kendo UI for jQuery. CVSS 5.4. Splitter and Window from 2011.2.804. Tooltip from 2013.1.319. Fixed in 2026.3.1015.",
+    },
+    {
+        "id": "CVE-2026-106153",
+        "title": "Calendar template XSS",
+        "product": "kendo",
+        "floor": "2011.3.1007",
+        "ceiling": None,
+        "fixed": "2026.3.1015",
+        "detail": "Kendo UI for jQuery. Calendar and MultiViewCalendar from 2011.3.1007. Fixed in 2026.3.1015.",
+    },
+    {
+        "id": "CVE-2026-106151",
+        "title": "Validator message XSS",
+        "product": "kendo",
+        "floor": "2012.2.710",
+        "ceiling": None,
+        "fixed": "2026.3.1015",
+        "detail": "Kendo UI for jQuery. CVSS 5.4. From 2012.2.710. Fixed in 2026.3.1015.",
+    },
+    {
+        "id": "CVE-2026-106158",
+        "title": "Scheduler resource color XSS",
+        "product": "kendo",
+        "floor": "2014.3.1119",
+        "ceiling": None,
+        "fixed": "2026.3.1015",
+        "detail": "Kendo UI for jQuery. CVSS 4.7. From 2014.3.1119. Fixed in 2026.3.1015.",
+    },
+    {
+        "id": "CVE-2026-106157",
+        "title": "PanelBar item URL XSS",
+        "product": "kendo",
+        "floor": "2019.2.514",
+        "ceiling": None,
+        "fixed": "2026.3.1015",
+        "detail": "Kendo UI for jQuery. CVSS 4.7. From 2019.2.514. Fixed in 2026.3.1015.",
+    },
+    {
+        "id": "CVE-2026-106147",
+        "title": "ListBox bound text XSS",
+        "product": "kendo",
+        "floor": "2020.1.114",
+        "ceiling": None,
+        "fixed": "2026.3.1015",
+        "detail": "Kendo UI for jQuery. CVSS 5.4. From 2020.1.114. Fixed in 2026.3.1015.",
+    },
+    {
+        "id": "CVE-2026-106161",
+        "title": "Badge text XSS",
+        "product": "kendo",
+        "floor": "2020.1.114",
+        "ceiling": None,
+        "fixed": "2026.3.1015",
+        "detail": "Kendo UI for jQuery. CVSS 5.4. From 2020.1.114. Fixed in 2026.3.1015.",
+    },
+    {
+        "id": "CVE-2025-6725",
+        "title": "PdfViewer XSS",
+        "product": "kendo",
+        "floor": "2024.4.1112",
+        "ceiling": "2025.2.520",
+        "fixed": "2025.2.702",
+        "detail": "Kendo UI for jQuery. CVSS 5.4. 2024.4.1112 through 2025.2.520. Fixed in 2025.2.702.",
+    },
+    {
+        "id": "CVE-2026-106163",
+        "title": "FileBrowser and ImageBrowser XSS",
+        "product": "kendo",
+        "floor": "2023.1.117",
+        "ceiling": None,
+        "fixed": "2026.3.1015",
+        "detail": "Kendo UI for jQuery. CVSS 6.5. From 2023.1.117. Fixed in 2026.3.1015.",
+    },
+    {
+        "id": "CVE-2026-106160",
+        "title": "Model.accept prototype pollution",
+        "product": "kendo",
+        "floor": "2023.1.117",
+        "ceiling": None,
+        "fixed": "2026.3.1015",
+        "detail": "Kendo UI for jQuery. CVSS 5.4. Vendor lists 2023.1.117 as the start. Fixed in 2026.3.1015.",
+    },
 ]
 
 COMMENT_RE = re.compile(r"<!--\s*(20\d{2}\.[1-4]\.\d{3,4}(?:\.\d{2,4})?)\s*-->")
@@ -591,10 +699,12 @@ def comparison_target(headline: dict) -> Optional[dict]:
 
 
 def assess_version(version: Optional[str], product: Optional[str]) -> List[dict]:
-    if not version or product != "aspnet-ajax":
+    if not version or product not in ("aspnet-ajax", "kendo"):
         return []
     rows = []
     for advisory in ADVISORIES:
+        if advisory.get("product", "aspnet-ajax") != product:
+            continue
         if compare_product(version, advisory["fixed"]) >= 0:
             status = "above-fix"
         elif advisory["floor"] and compare_product(version, advisory["floor"]) < 0:
@@ -611,6 +721,25 @@ def assess_version(version: Optional[str], product: Optional[str]) -> List[dict]
                 "title": advisory["title"],
                 "status": status,
                 "detail": advisory["detail"],
+            }
+        )
+    order = {"in-range": 0, "transitional": 1, "unplaced": 2, "outside": 3, "above-fix": 4}
+    rows.sort(key=lambda row: order[row["status"]])
+    return rows
+
+
+def unplaced_advisories(product: str) -> List[dict]:
+    library = "Kendo UI for jQuery" if product == "kendo" else "Telerik UI for ASP.NET AJAX"
+    rows = []
+    for advisory in ADVISORIES:
+        if advisory.get("product", "aspnet-ajax") != product:
+            continue
+        rows.append(
+            {
+                "id": advisory["id"],
+                "title": advisory["title"],
+                "status": "unplaced",
+                "detail": "%s. Build not read. %s" % (library, advisory["detail"]),
             }
         )
     return rows
@@ -1016,13 +1145,18 @@ def scan_one(args, url: str) -> dict:
         headline = apply_presence(build_headline(versions, verdicts), signals, chosen)
         notes.extend(build_notes(headline, chosen, signals))
         compared = comparison_target(headline)
+        advisories = assess_version(compared["version"], compared["product"]) if compared else []
+        ajax_known = any(hit["product"] == "aspnet-ajax" for hit in versions)
+        ajax_handlers = any(row["id"] in ("rau", "dialog") and row["state"] == "present" for row in chosen)
+        if not ajax_known and ajax_handlers and (not compared or compared["product"] != "aspnet-ajax"):
+            advisories.extend(unplaced_advisories("aspnet-ajax"))
         elapsed = int((time.time() - started) * 1000)
         return {
             "ok": True,
             "target": url,
             "finalUrl": page.final_url,
             "headline": headline,
-            "advisories": assess_version(compared["version"], compared["product"]) if compared else [],
+            "advisories": advisories,
             "versions": versions,
             "handlers": chosen,
             "signals": signals,

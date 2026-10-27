@@ -91,6 +91,114 @@ const ADVISORIES = [
     fixed: "2026.3.812",
     detail: "2011.2.712 through 2026.2.708 inclusive. Fixed in 2026.3.812. Requires a static machineKey or dialog key.",
   },
+  {
+    id: "CVE-2026-106149",
+    title: "Menu attribute XSS",
+    product: "kendo",
+    floor: "2011.2.804",
+    ceiling: null,
+    fixed: "2026.3.1015",
+    detail: "Kendo UI for jQuery. CVSS 5.4. Menu dataSource attributes, from 2011.2.804. Fixed in 2026.3.1015.",
+  },
+  {
+    id: "CVE-2026-106148",
+    title: "TabStrip, Menu, and PanelBar image URL XSS",
+    product: "kendo",
+    floor: "2011.2.804",
+    ceiling: null,
+    fixed: "2026.3.1015",
+    detail: "Kendo UI for jQuery. CVSS 5.4. Vendor table starts at 2011.2.804. Fixed in 2026.3.1015. The earliest build was not confirmed.",
+  },
+  {
+    id: "CVE-2026-106150",
+    title: "Splitter, Window, and Tooltip iframe XSS",
+    product: "kendo",
+    floor: "2011.2.804",
+    ceiling: null,
+    fixed: "2026.3.1015",
+    detail: "Kendo UI for jQuery. CVSS 5.4. Splitter and Window from 2011.2.804. Tooltip from 2013.1.319. Fixed in 2026.3.1015.",
+  },
+  {
+    id: "CVE-2026-106153",
+    title: "Calendar template XSS",
+    product: "kendo",
+    floor: "2011.3.1007",
+    ceiling: null,
+    fixed: "2026.3.1015",
+    detail: "Kendo UI for jQuery. Calendar and MultiViewCalendar from 2011.3.1007. Fixed in 2026.3.1015.",
+  },
+  {
+    id: "CVE-2026-106151",
+    title: "Validator message XSS",
+    product: "kendo",
+    floor: "2012.2.710",
+    ceiling: null,
+    fixed: "2026.3.1015",
+    detail: "Kendo UI for jQuery. CVSS 5.4. From 2012.2.710. Fixed in 2026.3.1015.",
+  },
+  {
+    id: "CVE-2026-106158",
+    title: "Scheduler resource color XSS",
+    product: "kendo",
+    floor: "2014.3.1119",
+    ceiling: null,
+    fixed: "2026.3.1015",
+    detail: "Kendo UI for jQuery. CVSS 4.7. From 2014.3.1119. Fixed in 2026.3.1015.",
+  },
+  {
+    id: "CVE-2026-106157",
+    title: "PanelBar item URL XSS",
+    product: "kendo",
+    floor: "2019.2.514",
+    ceiling: null,
+    fixed: "2026.3.1015",
+    detail: "Kendo UI for jQuery. CVSS 4.7. From 2019.2.514. Fixed in 2026.3.1015.",
+  },
+  {
+    id: "CVE-2026-106147",
+    title: "ListBox bound text XSS",
+    product: "kendo",
+    floor: "2020.1.114",
+    ceiling: null,
+    fixed: "2026.3.1015",
+    detail: "Kendo UI for jQuery. CVSS 5.4. From 2020.1.114. Fixed in 2026.3.1015.",
+  },
+  {
+    id: "CVE-2026-106161",
+    title: "Badge text XSS",
+    product: "kendo",
+    floor: "2020.1.114",
+    ceiling: null,
+    fixed: "2026.3.1015",
+    detail: "Kendo UI for jQuery. CVSS 5.4. From 2020.1.114. Fixed in 2026.3.1015.",
+  },
+  {
+    id: "CVE-2025-6725",
+    title: "PdfViewer XSS",
+    product: "kendo",
+    floor: "2024.4.1112",
+    ceiling: "2025.2.520",
+    fixed: "2025.2.702",
+    detail: "Kendo UI for jQuery. CVSS 5.4. 2024.4.1112 through 2025.2.520. Fixed in 2025.2.702.",
+  },
+  {
+    id: "CVE-2026-106163",
+    title: "FileBrowser and ImageBrowser XSS",
+    product: "kendo",
+    floor: "2023.1.117",
+    ceiling: null,
+    fixed: "2026.3.1015",
+    detail: "Kendo UI for jQuery. CVSS 6.5. From 2023.1.117. Fixed in 2026.3.1015.",
+  },
+  {
+    id: "CVE-2026-106160",
+    title: "Model.accept prototype pollution",
+    product: "kendo",
+    floor: "2023.1.117",
+    ceiling: null,
+    fixed: "2026.3.1015",
+    detail: "Kendo UI for jQuery. CVSS 5.4. Vendor lists 2023.1.117 as the start. Fixed in 2026.3.1015.",
+  },
 ];
 
 export const STATUS_LABEL = {
@@ -98,6 +206,7 @@ export const STATUS_LABEL = {
   "above-fix": "At or above fixed build",
   transitional: "Between listed builds",
   outside: "Outside stated floor",
+  unplaced: "Build not read",
 };
 
 function parseVersion(raw) {
@@ -398,15 +507,28 @@ export function channelLine(headline) {
 }
 
 export function assessVersion(version, product) {
-  if (!version || product !== "aspnet-ajax") return [];
-  return ADVISORIES.map((advisory) => {
-    let status = "in-range";
-    if (compareProduct(version, advisory.fixed) >= 0) status = "above-fix";
-    else if (advisory.floor && compareProduct(version, advisory.floor) < 0) status = "outside";
-    else if (advisory.ceiling && compareProduct(version, advisory.ceiling) <= 0) status = "in-range";
-    else if (advisory.ceiling && compareProduct(version, advisory.ceiling) > 0) status = "transitional";
-    return { id: advisory.id, title: advisory.title, status, detail: advisory.detail };
-  });
+  if (!version || (product !== "aspnet-ajax" && product !== "kendo")) return [];
+  const order = { "in-range": 0, transitional: 1, unplaced: 2, outside: 3, "above-fix": 4 };
+  return ADVISORIES.filter((advisory) => (advisory.product || "aspnet-ajax") === product)
+    .map((advisory) => {
+      let status = "in-range";
+      if (compareProduct(version, advisory.fixed) >= 0) status = "above-fix";
+      else if (advisory.floor && compareProduct(version, advisory.floor) < 0) status = "outside";
+      else if (advisory.ceiling && compareProduct(version, advisory.ceiling) <= 0) status = "in-range";
+      else if (advisory.ceiling && compareProduct(version, advisory.ceiling) > 0) status = "transitional";
+      return { id: advisory.id, title: advisory.title, status, detail: advisory.detail };
+    })
+    .sort((left, right) => order[left.status] - order[right.status]);
+}
+
+export function unplacedAdvisories(product) {
+  const library = product === "kendo" ? "Kendo UI for jQuery" : "Telerik UI for ASP.NET AJAX";
+  return ADVISORIES.filter((advisory) => (advisory.product || "aspnet-ajax") === product).map((advisory) => ({
+    id: advisory.id,
+    title: advisory.title,
+    status: "unplaced",
+    detail: `${library}. Build not read. ${advisory.detail}`,
+  }));
 }
 
 export function buildNotes(headline, handlers, signals) {
@@ -481,6 +603,10 @@ export function summarize(payload) {
     headline = { ...headline, summary: "Version unread. A handler answered." };
   }
   const compared = comparisonTarget(headline);
+  const advisories = compared ? assessVersion(compared.version, compared.product) : [];
+  const ajaxKnown = versions.some((hit) => hit.product === "aspnet-ajax");
+  const ajaxHandlers = handlers.some((row) => (row.id === "rau" || row.id === "dialog") && row.state === "present");
+  if (!ajaxKnown && ajaxHandlers && compared?.product !== "aspnet-ajax") advisories.push(...unplacedAdvisories("aspnet-ajax"));
   const notes = buildNotes(headline, handlers, signals);
   if (payload.login) {
     const suite = signals.length > 0;
@@ -492,7 +618,7 @@ export function summarize(payload) {
   }
   return {
     headline,
-    advisories: compared ? assessVersion(compared.version, compared.product) : [],
+    advisories,
     handlers,
     signals,
     notes,
