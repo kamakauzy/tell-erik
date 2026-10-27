@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assessVersion, buildHeadline, classifyHandler, extractVersions, summarize } from "./scan.js";
+import { assessVersion, assetTargets, buildHeadline, classifyHandler, confirmAsset, extractVersions, summarize } from "./scan.js";
 
 const PAGE = `<!doctype html><html><head>
 <link rel="stylesheet" href="https://cdn.example.com/docs.css?v=2024.2.514" />
@@ -33,6 +33,36 @@ test("prefers the 4-part comment over the 3-part CDN of the same build", () => {
   ]);
   assert.equal(headline.conflict, false);
   assert.equal(headline.version, "2019.2.514.45");
+  assert.equal(headline.channel, "server");
+});
+
+test("prefers the assembly string over the CDN path", () => {
+  const headline = buildHeadline([
+    { version: "2026.3.812", product: "aspnet-ajax", method: "ajax-cdn", source: "p", evidence: "cdn" },
+    { version: "2016.2.504.40", product: "aspnet-ajax", method: "assembly", source: "p", evidence: "asm" },
+  ]);
+  assert.equal(headline.version, "2016.2.504.40");
+  assert.equal(headline.method, "assembly");
+});
+
+test("confirms a skin and withholds ranges for an HTML body", () => {
+  const [target] = assetTargets(PAGE, "https://app.example/page.aspx");
+  assert.equal(target.url, "https://d35islomi5rx1v.cloudfront.net/ajaxz/2026.3.812/Grid.css");
+  const confirmed = confirmAsset(target, 200, "text/css", ".RadGrid{border-width:1px}");
+  const headline = buildHeadline(
+    [{ version: "2026.3.812", product: "aspnet-ajax", method: "ajax-cdn", source: "p", evidence: "cdn" }],
+    [confirmed],
+  );
+  assert.equal(headline.assetState, "confirmed");
+  assert.match(headline.basis, /confirmed skin/);
+  const rejected = confirmAsset(target, 200, "text/html", "<!doctype html><html></html>");
+  const labeled = summarize({
+    pageUrl: "https://app.example/page.aspx",
+    html: `<link class="Telerik_stylesheet" href="${target.url}" />`,
+    assets: [rejected],
+    handlers: [],
+  });
+  assert.equal(labeled.advisories.length, 0);
 });
 
 test("places 2026.3.812 at or above the tracked fixed builds", () => {
@@ -53,6 +83,7 @@ test("summarizes a page payload and a live kendo.version", () => {
     ],
   });
   assert.equal(result.headline.version, "2018.2.710.45");
+  assert.equal(result.headline.channel, "server");
   assert.equal(result.handlers.filter((row) => row.state === "present").length, 2);
   assert.ok(result.versions.some((hit) => hit.version === "2021.1.119" && hit.method === "script-banner"));
 });

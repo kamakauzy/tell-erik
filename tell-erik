@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """tell-erik: remote Telerik UI version enumerator.
 
-Reads the product build from rendered markup (HTML version comment, AJAX CDN
-path, assembly or resource query strings, Kendo CDN and script banners) and
-confirms handlers with GET fingerprints.
+Reads the product build from rendered markup (HTML version comment, assembly or
+resource query, AJAX CDN path, Kendo CDN and script banners). A linked CDN
+stylesheet or script is fetched and checked. The assembly string outranks the
+CDN path. Handlers are confirmed with GET fingerprints.
 
 Python 3.9+. Standard library only.
 """
@@ -218,13 +219,197 @@ def classify_handler(handler_id: str, status: int, body: str) -> Tuple[str, str]
     return "unknown", "HTTP %d, no fingerprint" % status
 
 
+ASSET_HOSTS = {
+    "d35islomi5rx1v.cloudfront.net",
+    "kendo.cdn.telerik.com",
+    "cdn.kendostatic.com",
+}
+ASSET_CAP = 8192
+ATTR_URL_RE = re.compile(r"""(?:src|href)\s*=\s*["']([^"']+)["']""", re.I)
+AJAX_ASSET_RE = re.compile(r"/ajaxz?/(20\d{2}\.[1-4]\.\d{3,4})(?:\.\d{2,4})?/", re.I)
+KENDO_ASSET_RE = re.compile(r"^/(20\d{2}\.[1-4]\.\d{3,4})/", re.I)
+FILE_BANNER_RE = re.compile(r"Kendo UI(?:\s+\w+){0,3}?\s+v(20\d{2}\.[1-4]\.\d{3,4})", re.I)
+RAD_MARKER_RE = re.compile(r"\.Rad[A-Za-z]")
+KENDO_RULE_RE = re.compile(r"\.k-[a-z]")
+HTML_BODY_RE = re.compile(r"<!doctype\b|<html[\s>]", re.I)
+
+
+def asset_targets(body: str, page_url: str) -> List[dict]:
+    raw = []
+    seen = set()
+    for match in ATTR_URL_RE.finditer(body):
+        value = match.group(1).replace("&", "&")
+        try:
+            absolute = urllib.parse.urljoin(page_url, value)
+            split = urllib.parse.urlsplit(absolute)
+        except ValueError:
+            continue
+        host = (split.hostname or "").lower()
+        if host not in ASSET_HOSTS:
+            continue
+        href = urllib.parse.urlunsplit((split.scheme, split.netloc, split.path, split.query, ""))
+        if href in seen:
+            continue
+        if host == "d35islomi5rx1v.cloudfront.net":
+            found = AJAX_ASSET_RE.search(split.path)
+            if not found:
+                continue
+            seen.add(href)
+            raw.append(
+                {
+                    "url": href,
+                    "version": found.group(1),
+                    "product": "aspnet-ajax",
+                    "kind": "css" if re.search(r"\.css(?:$|\?)", split.path, re.I) else "js",
+                }
+            )
+            continue
+        found = KENDO_ASSET_RE.search(split.path)
+        if not found:
+            continue
+        seen.add(href)
+        raw.append(
+            {
+                "url": href,
+                "version": found.group(1),
+                "product": "kendo",
+                "kind": "js" if re.search(r"\.js(?:$|\?)", split.path, re.I) else "css",
+            }
+        )
+    ajax_css = {product_key(item["version"]) for item in raw if item["product"] == "aspnet-ajax" and item["kind"] == "css"}
+    filtered = [
+        item
+        for item in raw
+        if not (item["product"] == "aspnet-ajax" and item["kind"] == "js" and product_key(item["version"]) in ajax_css)
+    ]
+
+    def score(item: dict) -> int:
+        if item["product"] == "kendo":
+            return 0 if item["kind"] == "js" else 1
+        return 0 if item["kind"] == "css" else 1
+
+    filtered.sort(key=score)
+    picked = []
+    picked_keys = set()
+    for item in filtered:
+        key = "%s|%s" % (item["product"], product_key(item["version"]))
+        if key in picked_keys:
+            continue
+        picked_keys.add(key)
+        picked.append(item)
+        if len(picked) >= 4:
+            break
+    return picked
+
+
+def confirm_asset(target: dict, status: int, content_type: str, body: str) -> dict:
+    sample = body[:4096]
+    content = (content_type or "").lower()
+    verdict = {
+        "url": target["url"],
+        "version": target["version"],
+        "product": target["product"],
+        "bannerVersion": None,
+    }
+    if status == 0:
+        verdict.update(state="unconfirmed", detail="No response")
+        return verdict
+    if status in (404, 410):
+        verdict.update(state="rejected", detail="Not found")
+        return verdict
+    if HTML_BODY_RE.search(sample):
+        verdict.update(state="rejected", detail="The response was HTML.")
+        return verdict
+    if target["product"] == "aspnet-ajax":
+        css_type = "css" in content or "text/plain" in content or content == ""
+        if status == 200 and css_type and RAD_MARKER_RE.search(sample):
+            verdict.update(state="confirmed", detail="Stylesheet returned a Telerik skin.")
+            return verdict
+        if status == 200:
+            verdict.update(state="rejected", detail="The body was not a Telerik skin.")
+            return verdict
+        verdict.update(state="unconfirmed", detail="HTTP %d" % status)
+        return verdict
+    banner = FILE_BANNER_RE.search(sample)
+    if status == 200 and banner:
+        banner_version = banner.group(1)
+        verdict["bannerVersion"] = banner_version
+        if product_key(banner_version) == product_key(target["version"]):
+            verdict.update(state="confirmed", detail="Script banner matches the path.")
+        else:
+            verdict.update(state="rejected", detail="Script banner is %s." % banner_version)
+        return verdict
+    if status == 200 and (("css" in content) or target["kind"] == "css") and KENDO_RULE_RE.search(sample):
+        verdict.update(state="confirmed", detail="Stylesheet returned Kendo rules.")
+        return verdict
+    if status == 200:
+        verdict.update(state="rejected", detail="The body did not carry a Kendo banner.")
+        return verdict
+    verdict.update(state="unconfirmed", detail="HTTP %d" % status)
+    return verdict
+
+
+def file_banner_hits(verdicts: Sequence[dict]) -> List[dict]:
+    hits = []
+    for verdict in verdicts:
+        banner = verdict.get("bannerVersion")
+        if not banner:
+            continue
+        hits.append(
+            {
+                "version": banner,
+                "product": verdict["product"],
+                "method": "file-banner",
+                "source": verdict["url"],
+                "evidence": "Kendo UI v%s" % banner,
+            }
+        )
+    return hits
+
+
+def fetch_asset(opener, start: str, timeout: float) -> Tuple[int, str, str]:
+    current = start
+    for _ in range(3):
+        split = urllib.parse.urlsplit(current)
+        host = (split.hostname or "").lower()
+        if host not in ASSET_HOSTS:
+            return 0, "", ""
+        try:
+            infos = socket.getaddrinfo(host, None)
+        except socket.gaierror:
+            return 0, "", ""
+        if any(is_blocked_ip(info[4][0], True) for info in infos):
+            return 0, "", ""
+        try:
+            status, body, headers, _ = fetch_once(
+                opener,
+                current,
+                "GET",
+                None,
+                {"User-Agent": SCANNER_UA, "Accept": "text/css,text/javascript,*/*;q=0.1"},
+                timeout,
+                ASSET_CAP,
+            )
+        except (urllib.error.URLError, TimeoutError, socket.timeout, OSError):
+            return 0, "", ""
+        if 300 <= status < 400:
+            location = header_get(headers, "Location")
+            if not location:
+                return status, "", ""
+            current = urllib.parse.urljoin(current, location)
+            continue
+        return status, header_get(headers, "Content-Type") or "", body
+    return 0, "", ""
+
+
 METHOD_RANK = {
-    "html-comment": 0,
-    "ajax-cdn": 1,
-    "assembly": 2,
-    "resource-query": 3,
-    "kendo-cdn": 4,
-    "script-banner": 5,
+    "assembly": 0,
+    "resource-query": 1,
+    "html-comment": 2,
+    "file-banner": 3,
+    "ajax-cdn": 4,
+    "kendo-cdn": 5,
+    "script-banner": 6,
 }
 PRODUCT_RANK = {"aspnet-ajax": 0, "reporting": 1, "kendo": 2}
 PRODUCT_LABEL = {
@@ -239,20 +424,55 @@ METHOD_LABEL = {
     "resource-query": "Resource query",
     "kendo-cdn": "Kendo CDN path",
     "script-banner": "Script banner",
+    "file-banner": "File banner",
 }
 
 
-def build_headline(hits: Sequence[dict]) -> dict:
+def empty_headline() -> dict:
+    return {
+        "version": None,
+        "product": None,
+        "productKey": None,
+        "method": None,
+        "channel": "none",
+        "assetState": "unchecked",
+        "basis": "",
+        "conflict": False,
+        "alternates": [],
+        "summary": "Version unread.",
+    }
+
+
+def channel_for(method: Optional[str]) -> str:
+    if method in ("assembly", "resource-query", "html-comment"):
+        return "server"
+    if method == "script-banner":
+        return "runtime"
+    if method:
+        return "asset"
+    return "none"
+
+
+def asset_state_for(method: Optional[str], product: Optional[str], version: Optional[str], verdicts: Sequence[dict]) -> str:
+    if method == "file-banner":
+        return "confirmed"
+    if channel_for(method) != "asset" or not product or not version:
+        return "unchecked"
+    key = product_key(version)
+    related = [item for item in verdicts if item.get("product") == product and product_key(item.get("version") or "") == key]
+    if not related:
+        return "unchecked"
+    if any(item.get("state") == "confirmed" for item in related):
+        return "confirmed"
+    if any(item.get("state") == "rejected" for item in related):
+        return "rejected"
+    return "unconfirmed"
+
+
+def build_headline(hits: Sequence[dict], verdicts: Optional[Sequence[dict]] = None) -> dict:
+    verdicts = list(verdicts or [])
     if not hits:
-        return {
-            "version": None,
-            "product": None,
-            "productKey": None,
-            "method": None,
-            "conflict": False,
-            "alternates": [],
-            "summary": "Version unread.",
-        }
+        return empty_headline()
     ajax = [hit for hit in hits if hit["product"] == "aspnet-ajax"]
     pool = ajax or list(hits)
     keys = []
@@ -266,24 +486,56 @@ def build_headline(hits: Sequence[dict]) -> dict:
     detailed = next((hit for hit in same if hit["version"].count(".") >= 3), same[0] if same else ranked[0])
     conflict = len(keys) > 1
     alternates = [key for key in keys if key != primary]
-    label = PRODUCT_LABEL.get(detailed["product"], "Telerik")
+    method = detailed["method"]
+    version = detailed["version"]
+    product = detailed["product"]
+    channel = channel_for(method)
+    asset_state = asset_state_for(method, product, version, verdicts)
+    label = PRODUCT_LABEL.get(product, "Telerik")
+    method_name = METHOD_LABEL.get(method, method).lower()
     if conflict:
-        summary = "Conflicting %s builds: %s." % (label, ", ".join(keys))
-    elif detailed["method"] == "ajax-cdn":
-        summary = "%s %s, read from the AJAX CDN path." % (label, detailed["version"])
-    elif detailed["method"] == "html-comment":
-        summary = "%s %s, read from the HTML version comment." % (label, detailed["version"])
+        summary = "Conflicting %s builds: %s. Headline follows the %s." % (label, ", ".join(keys), method_name)
+    elif method == "ajax-cdn" and asset_state == "confirmed":
+        summary = "%s %s, read from the AJAX CDN path. The stylesheet returned a Telerik skin." % (label, version)
+    elif method == "ajax-cdn" and asset_state == "rejected":
+        summary = "%s %s, read from the AJAX CDN path. That URL did not return a skin." % (label, version)
+    elif method == "ajax-cdn" and asset_state == "unconfirmed":
+        summary = "%s %s, read from the AJAX CDN path. The file check was inconclusive." % (label, version)
+    elif method == "ajax-cdn":
+        summary = "%s %s, read from the AJAX CDN path." % (label, version)
+    elif method == "html-comment":
+        summary = "%s %s, read from the HTML version comment." % (label, version)
+    elif method == "file-banner":
+        summary = "%s %s, read from the script file banner." % (label, version)
     else:
-        summary = "%s %s, read from %s." % (label, detailed["version"], METHOD_LABEL.get(detailed["method"], detailed["method"]).lower())
+        summary = "%s %s, read from %s." % (label, version, method_name)
+    comparable = channel == "server" or channel == "runtime" or (channel == "asset" and asset_state == "confirmed")
+    basis = ""
+    if comparable and version and product == "aspnet-ajax":
+        if channel == "server":
+            basis = "Compared to the server-stated build."
+        elif channel == "asset":
+            basis = "Compared to the confirmed skin. The server build was not in the page."
+        else:
+            basis = "Compared to the script banner."
     return {
-        "version": detailed["version"],
-        "product": detailed["product"],
+        "version": version,
+        "product": product,
         "productKey": primary,
-        "method": detailed["method"],
+        "method": method,
+        "channel": channel,
+        "assetState": asset_state,
+        "basis": basis,
         "conflict": conflict,
         "alternates": alternates,
         "summary": summary,
     }
+
+
+def comparison_target(headline: dict) -> Optional[dict]:
+    if not headline.get("version") or not headline.get("product") or not headline.get("basis"):
+        return None
+    return {"version": headline["version"], "product": headline["product"]}
 
 
 def assess_version(version: Optional[str], product: Optional[str]) -> List[dict]:
@@ -327,9 +579,19 @@ def build_notes(headline: dict, handlers: Sequence[dict], signals: Sequence[str]
         )
     if any(row["detail"] in ("HTTP 401", "HTTP 403") for row in handlers):
         notes.append("A path returned 401 or 403. Pass the application cookie or a form login and run again.")
-    if headline.get("conflict"):
-        notes.append("More than one product build appeared. A shared layout can load a CDN build beside the bin assembly.")
-    if headline.get("method") == "ajax-cdn":
+    if headline.get("conflict") and headline.get("channel") == "server":
+        notes.append("The headline follows the server-stated build. Another build was also on the page.")
+    elif headline.get("conflict"):
+        notes.append("More than one product build appeared.")
+    if headline.get("method") == "ajax-cdn" and headline.get("assetState") == "confirmed":
+        notes.append(
+            "The CDN file returned a Telerik skin. The CSS does not repeat the version. The product build is the first three numbers."
+        )
+    elif headline.get("method") == "ajax-cdn" and headline.get("assetState") == "rejected":
+        notes.append("The CDN URL did not return a skin. The path is a label, so the published ranges were not applied.")
+    elif headline.get("method") == "ajax-cdn" and headline.get("assetState") == "unconfirmed":
+        notes.append("The CDN file check was inconclusive, so the published ranges were not applied.")
+    elif headline.get("method") == "ajax-cdn":
         notes.append("The CDN path omits the assembly framework suffix (.40, .45, .462). The product build is the first three numbers.")
     if any("encrypted d parameter" in signal for signal in signals) and headline.get("method") != "html-comment":
         notes.append("WebResource.axd carries an encrypted query. The suite is on the page.")
@@ -498,19 +760,19 @@ def cookie_header(jar: Dict[str, str]) -> str:
     return "; ".join("%s=%s" % item for item in jar.items())
 
 
-def fetch_once(opener, url: str, method: str, data: Optional[bytes], headers: Dict[str, str], timeout: float) -> Tuple[int, str, object, str]:
+def fetch_once(opener, url: str, method: str, data: Optional[bytes], headers: Dict[str, str], timeout: float, limit: int = MAX_BODY) -> Tuple[int, str, object, str]:
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with opener.open(request, timeout=timeout) as response:
-            raw = response.read(MAX_BODY + 1)
-            body = raw[:MAX_BODY].decode("utf-8", "replace")
+            raw = response.read(limit + 1)
+            body = raw[:limit].decode("utf-8", "replace")
             return response.status, body, response.headers, response.geturl()
     except urllib.error.HTTPError as exc:
         try:
-            raw = exc.read(MAX_BODY + 1) if exc.fp else b""
+            raw = exc.read(limit + 1) if exc.fp else b""
         finally:
             exc.close()
-        body = raw[:MAX_BODY].decode("utf-8", "replace")
+        body = raw[:limit].decode("utf-8", "replace")
         return exc.code, body, exc.headers, url
 
 
@@ -646,6 +908,12 @@ def scan_one(args, url: str) -> dict:
         notes = []
         if page.off_host:
             notes.append("The target URL redirected to a different host. Handler probes stayed on the original host.")
+        verdicts = []
+        for target in asset_targets(page.body, page.final_url):
+            status, content_type, asset_body = fetch_asset(opener, target["url"], timeout)
+            requests.append({"url": target["url"], "status": status, "purpose": "asset"})
+            verdicts.append(confirm_asset(target, status, content_type, asset_body))
+        versions.extend(file_banner_hits(verdicts))
         referenced = referenced_bases(page.final_url if not page.off_host else url, page.body)
         parents = directory_bases(page.final_url if not page.off_host else url, not args.no_walk)
         bases = []
@@ -681,16 +949,17 @@ def scan_one(args, url: str) -> dict:
                 handlers.append(
                     {"id": handler_id, "name": name, "url": got.final_url, "status": got.status, "state": state, "detail": detail}
                 )
-        headline = build_headline(versions)
+        headline = build_headline(versions, verdicts)
         chosen = prefer_handlers(handlers)
         notes.extend(build_notes(headline, chosen, signals))
+        compared = comparison_target(headline)
         elapsed = int((time.time() - started) * 1000)
         return {
             "ok": True,
             "target": url,
             "finalUrl": page.final_url,
             "headline": headline,
-            "advisories": assess_version(headline.get("version"), headline.get("product")),
+            "advisories": assess_version(compared["version"], compared["product"]) if compared else [],
             "versions": versions,
             "handlers": chosen,
             "signals": signals,
@@ -728,6 +997,26 @@ def scan_one(args, url: str) -> dict:
         }
 
 
+def channel_line(headline: dict) -> str:
+    channel = headline.get("channel")
+    state = headline.get("assetState")
+    if channel == "server":
+        return "server-stated"
+    if channel == "asset" and state == "confirmed" and headline.get("method") == "file-banner":
+        return "file confirmed"
+    if channel == "asset" and state == "confirmed":
+        return "skin confirmed"
+    if channel == "asset" and state == "rejected":
+        return "skin path only"
+    if channel == "asset" and state == "unconfirmed":
+        return "skin inconclusive"
+    if channel == "asset":
+        return "skin path"
+    if channel == "runtime":
+        return "script banner"
+    return "unread"
+
+
 def render_text(result: dict) -> str:
     if not result.get("ok"):
         return "error: %s\ntarget: %s" % (result.get("error", "failed"), result.get("target", ""))
@@ -736,6 +1025,7 @@ def render_text(result: dict) -> str:
         "target:  %s" % result["target"],
         "final:   %s" % result.get("finalUrl", ""),
         "version: %s" % (headline.get("version") or "unread"),
+        "channel: %s" % channel_line(headline),
         "summary: %s" % headline.get("summary", ""),
     ]
     env = result.get("environment") or {}
@@ -745,7 +1035,7 @@ def render_text(result: dict) -> str:
     for row in result.get("handlers") or []:
         lines.append("  %-18s %-8s %s  %s" % (row["name"], row["state"], row["status"], row["detail"]))
     if result.get("advisories"):
-        lines.append("published ranges:")
+        lines.append("published ranges: %s" % (headline.get("basis") or ""))
         for row in result["advisories"]:
             lines.append("  %-16s %-13s %s" % (row["id"], row["status"], row["title"]))
     if result.get("notes"):
@@ -799,8 +1089,43 @@ def self_test() -> int:
             {"version": "2019.2.514", "product": "aspnet-ajax", "method": "ajax-cdn", "source": "p", "evidence": "d"},
         ]
     )
-    if headline["conflict"] or headline["version"] != "2019.2.514.45":
+    if headline["conflict"] or headline["version"] != "2019.2.514.45" or headline["channel"] != "server":
         print("self-test failed: headline %s" % headline, file=sys.stderr)
+        return 1
+    ranked = build_headline(
+        [
+            {"version": "2026.3.812", "product": "aspnet-ajax", "method": "ajax-cdn", "source": "p", "evidence": "cdn"},
+            {"version": "2018.2.710.45", "product": "aspnet-ajax", "method": "html-comment", "source": "p", "evidence": "c"},
+            {"version": "2016.2.504.40", "product": "aspnet-ajax", "method": "assembly", "source": "p", "evidence": "a"},
+        ]
+    )
+    if ranked["version"] != "2016.2.504.40" or ranked["method"] != "assembly":
+        print("self-test failed: rank %s" % ranked, file=sys.stderr)
+        return 1
+    targets = asset_targets(page, "https://app.example/page.aspx")
+    if len(targets) != 1 or not targets[0]["url"].endswith("/ajax/2026.3.812/Grid.css"):
+        print("self-test failed: asset target %s" % targets, file=sys.stderr)
+        return 1
+    skin = confirm_asset(targets[0], 200, "text/css", ".RadGrid{border-width:1px}")
+    if skin["state"] != "confirmed":
+        print("self-test failed: skin %s" % skin, file=sys.stderr)
+        return 1
+    html_body = confirm_asset(targets[0], 200, "text/html", "<!doctype html><html></html>")
+    labeled = build_headline(
+        [{"version": "2026.3.812", "product": "aspnet-ajax", "method": "ajax-cdn", "source": "p", "evidence": "cdn"}],
+        [html_body],
+    )
+    if labeled["assetState"] != "rejected" or comparison_target(labeled) is not None:
+        print("self-test failed: withheld %s" % labeled, file=sys.stderr)
+        return 1
+    banner = confirm_asset(
+        {"url": "https://kendo.cdn.telerik.com/2024.2.514/js/kendo.all.min.js", "version": "2024.2.514", "product": "kendo", "kind": "js"},
+        200,
+        "text/javascript",
+        "/**\n * Kendo UI v2024.1.319\n */",
+    )
+    if banner["bannerVersion"] != "2024.1.319" or banner["state"] != "rejected":
+        print("self-test failed: banner %s" % banner, file=sys.stderr)
         return 1
     rows = {row["id"]: row["status"] for row in assess_version("2026.3.812", "aspnet-ajax")}
     if any(status != "above-fix" for status in rows.values()):

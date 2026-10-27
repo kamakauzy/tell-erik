@@ -4,6 +4,11 @@
   "version": "0.1.0",
   "description": "Read the Telerik UI build on the current tab.",
   "permissions": ["activeTab", "scripting"],
+  "host_permissions": [
+    "https://d35islomi5rx1v.cloudfront.net/*",
+    "https://kendo.cdn.telerik.com/*",
+    "https://cdn.kendostatic.com/*"
+  ],
   "action": {
     "default_title": "tell-erik",
     "default_popup": "popup.html",

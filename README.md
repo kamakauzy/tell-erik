@@ -2,7 +2,9 @@
 
 Remote Telerik UI version enumerator.
 
-Reads the build from the HTML version comment, the AJAX CDN path (`/ajax/<build>/` or the gzip folder `/ajaxz/<build>/`), an assembly or resource-query string, or a Kendo CDN path or script banner. Confirms handlers with GET fingerprints.
+Reads the build from the assembly or resource-query string, the HTML version comment, the AJAX CDN path (`/ajax/<build>/` or the gzip folder `/ajaxz/<build>/`), or a Kendo CDN path or script banner. A linked CDN stylesheet or script is fetched and checked. Handlers are confirmed with GET fingerprints.
+
+The assembly string outranks the comment, and the comment outranks the CDN path. An AJAX stylesheet confirms when the body is CSS with a `.Rad` rule. The CSS does not repeat the version. A Kendo script confirms from the `Kendo UI v…` banner in the file, and that banner outranks the path when the two builds differ. Published ranges use the server-stated build when one is present, and a confirmed skin when the page has nothing else. A path whose file does not confirm does not drive a range.
 
 Python 3.9+. Standard library only.
 
@@ -26,9 +28,9 @@ Exit 0 when a version or a handler is present, 2 on a clean miss, 1 on error.
 
 ## Extension
 
-Chrome or Edge. On the extensions page, turn on developer mode, choose Load unpacked, and select the `extension/` folder. Open the app, then click the icon. The read uses that tab's session.
+Chrome or Edge. On the extensions page, turn on developer mode, choose Load unpacked, and select the `extension/` folder. Open the app, then click the icon. The read uses that tab's session. Reload the unpacked extension after an update.
 
-The grant is the click. Permissions are `activeTab` and `scripting`.
+The grant on the tab is the click (`activeTab`, `scripting`). The popup also fetches the Telerik AJAX CDN and the two Kendo CDNs, with credentials omitted, to check the file the page linked.
 
 ## Encryption
 

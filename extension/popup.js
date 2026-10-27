@@ -1,7 +1,12 @@
-import { METHOD_LABEL, PRODUCT_LABEL, STATUS_LABEL, summarize } from "./scan.js";
+import { METHOD_LABEL, PRODUCT_LABEL, STATUS_LABEL, assetTargets, channelLine, confirmAsset, summarize } from "./scan.js";
 
 const out = document.querySelector("#out");
 const host = document.querySelector("#host");
+const CDN_HOSTS = new Set([
+  "d35islomi5rx1v.cloudfront.net",
+  "kendo.cdn.telerik.com",
+  "cdn.kendostatic.com",
+]);
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -19,7 +24,10 @@ function render(result) {
     el("p", "version", headline.version || "Unread"),
     el("p", "summary", headline.summary),
   );
-  if (headline.method) card.append(el("p", "method", METHOD_LABEL[headline.method] || headline.method));
+  const method = [headline.method ? METHOD_LABEL[headline.method] || headline.method : "", channelLine(headline)]
+    .filter(Boolean)
+    .join(" · ");
+  if (method) card.append(el("p", "method", method));
   if (headline.conflict && headline.alternates.length) {
     card.append(el("p", "warn", `Other builds: ${headline.alternates.join(", ")}`));
   }
@@ -29,7 +37,7 @@ function render(result) {
 
   if (result.advisories.length) {
     const block = el("section", "card");
-    block.append(el("h2", "heading", "Published ranges"), el("p", "summary", "Published build comparison."));
+    block.append(el("h2", "heading", "Published ranges"), el("p", "summary", headline.basis));
     const table = el("div", "rows");
     for (const row of result.advisories) {
       const line = el("div", "row");
@@ -48,7 +56,11 @@ function render(result) {
   if (!result.handlers.length) handlers.append(el("p", "summary", "Handler list empty."));
   for (const row of result.handlers) {
     const line = el("div", "handler");
-    line.append(el("span", "name", row.name), el("span", `state ${row.state}`, `${row.state} ${row.status || ""}`.trim()), el("span", "detail", row.detail));
+    line.append(
+      el("span", "name", row.name),
+      el("span", `state ${row.state}`, `${row.state} ${row.status || ""}`.trim()),
+      el("span", "detail", row.detail),
+    );
     handlers.append(line);
   }
   out.append(handlers);
@@ -63,8 +75,44 @@ function render(result) {
 }
 
 function showError(message) {
-  out.replaceChildren(el("section", "card", null));
-  out.firstChild.append(el("p", "bad", message));
+  out.replaceChildren();
+  const card = el("section", "card");
+  card.append(el("p", "bad", message));
+  out.append(card);
+}
+
+async function readAssets(html, pageUrl) {
+  const verdicts = [];
+  for (const target of assetTargets(html, pageUrl)) {
+    let current = target.url;
+    let status = 0;
+    let type = "";
+    let body = "";
+    try {
+      for (let hop = 0; hop < 3; hop += 1) {
+        const url = new URL(current);
+        if (!CDN_HOSTS.has(url.hostname.toLowerCase())) break;
+        const response = await fetch(current, { redirect: "manual", credentials: "omit" });
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get("location");
+          if (!location) {
+            status = response.status;
+            break;
+          }
+          current = new URL(location, current).toString();
+          continue;
+        }
+        status = response.status;
+        type = response.headers.get("content-type") || "";
+        body = (await response.text()).slice(0, 8192);
+        break;
+      }
+    } catch {
+      status = 0;
+    }
+    verdicts.push(confirmAsset(target, status, type, body));
+  }
+  return verdicts;
 }
 
 async function readKendo(tabId) {
@@ -116,10 +164,15 @@ async function scan() {
       showError("The tab returned an empty read.");
       return;
     }
-    render(summarize({ ...payload, kendoVersion }));
+    const assets = await readAssets(`${payload.html || ""}\n${payload.liveHtml || ""}`, payload.pageUrl || tab.url);
+    render(summarize({ ...payload, kendoVersion, assets }));
   } catch (error) {
     const message = error && error.message ? error.message : "The read failed.";
-    showError(message.includes("Cannot access") || message.includes("cannot be scripted") ? "Chrome blocked script access on this page." : message);
+    showError(
+      message.includes("Cannot access") || message.includes("cannot be scripted")
+        ? "Chrome blocked script access on this page."
+        : message,
+    );
   }
 }
 

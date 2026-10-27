@@ -8,6 +8,19 @@ const ASSEMBLY_RE =
   /Telerik\.(Web\.UI|Reporting)(?:%2[cC]|,)(?:\+|%20|\s)*Version(?:=|%3[dD])(\d+\.\d+\.\d+(?:\.\d+)?)/gi;
 const KENDO_BANNER_RE = /Kendo UI(?:\s+\w+){0,3}?\s+v(20\d{2}\.[1-4]\.\d{3,4})/gi;
 const KENDO_ASSIGN_RE = /kendo\.version\s*=\s*["'](20\d{2}\.[1-4]\.\d{3,4})/gi;
+const ATTR_URL_RE = /(?:src|href)\s*=\s*["']([^"']+)["']/gi;
+const AJAX_ASSET_RE = /\/ajaxz?\/(20\d{2}\.[1-4]\.\d{3,4})(?:\.\d{2,4})?\//i;
+const KENDO_ASSET_RE = /^\/(20\d{2}\.[1-4]\.\d{3,4})\//i;
+const FILE_BANNER_RE = /Kendo UI(?:\s+\w+){0,3}?\s+v(20\d{2}\.[1-4]\.\d{3,4})/i;
+const RAD_MARKER_RE = /\.Rad[A-Za-z]/;
+const KENDO_RULE_RE = /\.k-[a-z]/;
+const HTML_BODY_RE = /<!doctype\b|<html[\s>]/i;
+
+const CDN_HOSTS = new Set([
+  "d35islomi5rx1v.cloudfront.net",
+  "kendo.cdn.telerik.com",
+  "cdn.kendostatic.com",
+]);
 
 export const PRODUCT_LABEL = {
   "aspnet-ajax": "Telerik UI for ASP.NET AJAX",
@@ -22,15 +35,17 @@ export const METHOD_LABEL = {
   "resource-query": "Resource query",
   "kendo-cdn": "Kendo CDN path",
   "script-banner": "Script banner",
+  "file-banner": "File banner",
 };
 
 const METHOD_RANK = {
-  "html-comment": 0,
-  "ajax-cdn": 1,
-  assembly: 2,
-  "resource-query": 3,
-  "kendo-cdn": 4,
-  "script-banner": 5,
+  assembly: 0,
+  "resource-query": 1,
+  "html-comment": 2,
+  "file-banner": 3,
+  "ajax-cdn": 4,
+  "kendo-cdn": 5,
+  "script-banner": 6,
 };
 
 const PRODUCT_RANK = { "aspnet-ajax": 0, reporting: 1, kendo: 2 };
@@ -156,6 +171,95 @@ export function extractVersions(body, source) {
   return hits;
 }
 
+export function assetTargets(body, pageUrl) {
+  const raw = [];
+  const seen = new Set();
+  for (const match of String(body || "").matchAll(ATTR_URL_RE)) {
+    const value = match[1]?.replace(/&/g, "&");
+    if (!value) continue;
+    let url;
+    try {
+      url = new URL(value, pageUrl);
+    } catch {
+      continue;
+    }
+    const host = url.hostname.toLowerCase();
+    if (!CDN_HOSTS.has(host)) continue;
+    url.hash = "";
+    const href = url.toString();
+    if (seen.has(href)) continue;
+    if (host === "d35islomi5rx1v.cloudfront.net") {
+      const found = AJAX_ASSET_RE.exec(url.pathname);
+      if (!found?.[1]) continue;
+      seen.add(href);
+      raw.push({ url: href, version: found[1], product: "aspnet-ajax", kind: /\.css(?:$|\?)/i.test(url.pathname) ? "css" : "js" });
+      continue;
+    }
+    const found = KENDO_ASSET_RE.exec(url.pathname);
+    if (!found?.[1]) continue;
+    seen.add(href);
+    raw.push({ url: href, version: found[1], product: "kendo", kind: /\.js(?:$|\?)/i.test(url.pathname) ? "js" : "css" });
+  }
+  const ajaxCss = new Set(raw.filter((target) => target.product === "aspnet-ajax" && target.kind === "css").map((target) => productKey(target.version)));
+  const filtered = raw.filter((target) => !(target.product === "aspnet-ajax" && target.kind === "js" && ajaxCss.has(productKey(target.version))));
+  filtered.sort((left, right) => {
+    const score = (target) => (target.product === "kendo" ? (target.kind === "js" ? 0 : 1) : target.kind === "css" ? 0 : 1);
+    return score(left) - score(right);
+  });
+  const picked = [];
+  const pickedKeys = new Set();
+  for (const target of filtered) {
+    const id = `${target.product}|${productKey(target.version)}`;
+    if (pickedKeys.has(id)) continue;
+    pickedKeys.add(id);
+    picked.push(target);
+    if (picked.length >= 4) break;
+  }
+  return picked;
+}
+
+export function confirmAsset(target, status, contentType, body) {
+  const type = String(contentType || "").toLowerCase();
+  const sample = String(body || "").slice(0, 4096);
+  const base = { url: target.url, version: target.version, product: target.product, bannerVersion: null };
+  if (status === 0) return { ...base, state: "unconfirmed", detail: "No response" };
+  if (status === 404 || status === 410) return { ...base, state: "rejected", detail: "Not found" };
+  if (HTML_BODY_RE.test(sample)) return { ...base, state: "rejected", detail: "The response was HTML." };
+  if (target.product === "aspnet-ajax") {
+    const cssType = type.includes("css") || type.includes("text/plain") || type === "";
+    if (status === 200 && cssType && RAD_MARKER_RE.test(sample)) {
+      return { ...base, state: "confirmed", detail: "Stylesheet returned a Telerik skin." };
+    }
+    if (status === 200) return { ...base, state: "rejected", detail: "The body was not a Telerik skin." };
+    return { ...base, state: "unconfirmed", detail: `HTTP ${status}` };
+  }
+  const banner = FILE_BANNER_RE.exec(sample);
+  if (status === 200 && banner?.[1]) {
+    const bannerVersion = banner[1];
+    if (productKey(bannerVersion) === productKey(target.version)) {
+      return { ...base, state: "confirmed", detail: "Script banner matches the path.", bannerVersion };
+    }
+    return { ...base, state: "rejected", detail: `Script banner is ${bannerVersion}.`, bannerVersion };
+  }
+  if (status === 200 && (type.includes("css") || target.kind === "css") && KENDO_RULE_RE.test(sample)) {
+    return { ...base, state: "confirmed", detail: "Stylesheet returned Kendo rules." };
+  }
+  if (status === 200) return { ...base, state: "rejected", detail: "The body did not carry a Kendo banner." };
+  return { ...base, state: "unconfirmed", detail: `HTTP ${status}` };
+}
+
+export function fileBannerHits(verdicts) {
+  return (verdicts || [])
+    .filter((verdict) => verdict.bannerVersion)
+    .map((verdict) => ({
+      version: verdict.bannerVersion,
+      product: verdict.product,
+      method: "file-banner",
+      source: verdict.url,
+      evidence: `Kendo UI v${verdict.bannerVersion}`,
+    }));
+}
+
 export function markupSignals(body) {
   const text = String(body || "");
   const signals = [];
@@ -188,13 +292,34 @@ export function classifyHandler(id, status, body) {
   return { state: "unknown", detail: `HTTP ${status}, no fingerprint` };
 }
 
-export function buildHeadline(hits) {
+function channelFor(method) {
+  if (method === "assembly" || method === "resource-query" || method === "html-comment") return "server";
+  if (method === "script-banner") return "runtime";
+  if (method) return "asset";
+  return "none";
+}
+
+function assetStateFor(method, product, version, verdicts) {
+  if (method === "file-banner") return "confirmed";
+  if (channelFor(method) !== "asset" || !product || !version) return "unchecked";
+  const key = productKey(version);
+  const related = (verdicts || []).filter((verdict) => verdict.product === product && productKey(verdict.version) === key);
+  if (!related.length) return "unchecked";
+  if (related.some((verdict) => verdict.state === "confirmed")) return "confirmed";
+  if (related.some((verdict) => verdict.state === "rejected")) return "rejected";
+  return "unconfirmed";
+}
+
+export function buildHeadline(hits, verdicts = []) {
   if (!hits.length) {
     return {
       version: null,
       product: null,
       productKey: null,
       method: null,
+      channel: "none",
+      assetState: "unchecked",
+      basis: "",
       conflict: false,
       alternates: [],
       summary: "Version unread.",
@@ -216,21 +341,57 @@ export function buildHeadline(hits) {
   const same = ranked.filter((hit) => productKey(hit.version) === primary);
   const detailed = same.find((hit) => hit.version.split(".").length >= 4) || same[0] || ranked[0];
   const conflict = keys.length > 1;
-  const label = PRODUCT_LABEL[detailed.product] || "Telerik";
-  let summary = `${label} ${detailed.version}`.trim();
-  if (conflict) summary = `Conflicting ${label} builds: ${keys.join(", ")}.`;
-  else if (detailed.method === "ajax-cdn") summary = `${label} ${detailed.version}, read from the AJAX CDN path.`;
-  else if (detailed.method === "html-comment") summary = `${label} ${detailed.version}, read from the HTML version comment.`;
-  else summary = `${label} ${detailed.version}, read from ${METHOD_LABEL[detailed.method] || detailed.method}.`;
+  const method = detailed.method;
+  const version = detailed.version;
+  const product = detailed.product;
+  const channel = channelFor(method);
+  const assetState = assetStateFor(method, product, version, verdicts);
+  const label = PRODUCT_LABEL[product] || "Telerik";
+  const methodName = (METHOD_LABEL[method] || method).toLowerCase();
+  let summary = `${label} ${version}`.trim();
+  if (conflict) summary = `Conflicting ${label} builds: ${keys.join(", ")}. Headline follows the ${methodName}.`;
+  else if (method === "ajax-cdn" && assetState === "confirmed") summary = `${label} ${version}, read from the AJAX CDN path. The stylesheet returned a Telerik skin.`;
+  else if (method === "ajax-cdn" && assetState === "rejected") summary = `${label} ${version}, read from the AJAX CDN path. That URL did not return a skin.`;
+  else if (method === "ajax-cdn" && assetState === "unconfirmed") summary = `${label} ${version}, read from the AJAX CDN path. The file check was inconclusive.`;
+  else if (method === "ajax-cdn") summary = `${label} ${version}, read from the AJAX CDN path.`;
+  else if (method === "html-comment") summary = `${label} ${version}, read from the HTML version comment.`;
+  else if (method === "file-banner") summary = `${label} ${version}, read from the script file banner.`;
+  else summary = `${label} ${version}, read from ${methodName}.`;
+  const comparable = channel === "server" || channel === "runtime" || (channel === "asset" && assetState === "confirmed");
+  let basis = "";
+  if (comparable && version && product === "aspnet-ajax") {
+    if (channel === "server") basis = "Compared to the server-stated build.";
+    else if (channel === "asset") basis = "Compared to the confirmed skin. The server build was not in the page.";
+    else basis = "Compared to the script banner.";
+  }
   return {
-    version: detailed.version,
-    product: detailed.product,
+    version,
+    product,
     productKey: primary,
-    method: detailed.method,
+    method,
+    channel,
+    assetState,
+    basis,
     conflict,
     alternates: keys.filter((key) => key !== primary),
     summary,
   };
+}
+
+export function comparisonTarget(headline) {
+  if (!headline.version || !headline.product || !headline.basis) return null;
+  return { version: headline.version, product: headline.product };
+}
+
+export function channelLine(headline) {
+  if (headline.channel === "server") return "server-stated";
+  if (headline.channel === "asset" && headline.assetState === "confirmed" && headline.method === "file-banner") return "file confirmed";
+  if (headline.channel === "asset" && headline.assetState === "confirmed") return "skin confirmed";
+  if (headline.channel === "asset" && headline.assetState === "rejected") return "skin path only";
+  if (headline.channel === "asset" && headline.assetState === "unconfirmed") return "skin inconclusive";
+  if (headline.channel === "asset") return "skin path";
+  if (headline.channel === "runtime") return "script banner";
+  return "";
 }
 
 export function assessVersion(version, product) {
@@ -260,8 +421,16 @@ export function buildNotes(headline, handlers, signals) {
   if (handlers.some((row) => row.detail === "HTTP 401" || row.detail === "HTTP 403")) {
     notes.push("A path returned 401 or 403.");
   }
-  if (headline.conflict) notes.push("More than one product build appeared. A shared layout can load a CDN build beside the bin assembly.");
-  if (headline.method === "ajax-cdn") {
+  if (headline.conflict && headline.channel === "server") {
+    notes.push("The headline follows the server-stated build. Another build was also on the page.");
+  } else if (headline.conflict) notes.push("More than one product build appeared.");
+  if (headline.method === "ajax-cdn" && headline.assetState === "confirmed") {
+    notes.push("The CDN file returned a Telerik skin. The CSS does not repeat the version. The product build is the first three numbers.");
+  } else if (headline.method === "ajax-cdn" && headline.assetState === "rejected") {
+    notes.push("The CDN URL did not return a skin. The path is a label, so the published ranges were not applied.");
+  } else if (headline.method === "ajax-cdn" && headline.assetState === "unconfirmed") {
+    notes.push("The CDN file check was inconclusive, so the published ranges were not applied.");
+  } else if (headline.method === "ajax-cdn") {
     notes.push("The CDN path omits the assembly framework suffix (.40, .45, .462). The product build is the first three numbers.");
   }
   if (signals.some((signal) => signal.includes("encrypted d parameter")) && headline.method !== "html-comment") {
@@ -273,9 +442,11 @@ export function buildNotes(headline, handlers, signals) {
 
 export function summarize(payload) {
   const pageUrl = payload.pageUrl || "";
+  const verdicts = payload.assets || [];
   const versions = [
     ...extractVersions(payload.html || "", pageUrl),
     ...extractVersions(payload.liveHtml || "", `${pageUrl}#document`),
+    ...fileBannerHits(verdicts),
   ];
   if (payload.kendoVersion && /^20\d{2}\.[1-4]\.\d{3,4}/.test(payload.kendoVersion)) {
     versions.push({
@@ -294,10 +465,11 @@ export function summarize(payload) {
     const classified = classifyHandler(row.id, row.status, row.body || "");
     return { id: row.id, name: row.name, url: row.finalUrl || row.url, status: row.status, ...classified };
   });
-  const headline = buildHeadline(versions);
+  const headline = buildHeadline(versions, verdicts);
+  const compared = comparisonTarget(headline);
   return {
     headline,
-    advisories: assessVersion(headline.version, headline.product),
+    advisories: compared ? assessVersion(compared.version, compared.product) : [],
     handlers,
     signals,
     notes: buildNotes(headline, handlers, signals),
