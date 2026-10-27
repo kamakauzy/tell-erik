@@ -30,7 +30,7 @@ Exit 0 when a version or a handler is present, 2 on a clean miss, 1 on error.
 
 ## Extension
 
-v0.2.0 reads `extension/definitions.json` for the published ranges. The runner loads that file when it sits next to the script or at `extension/definitions.json`, and otherwise uses the copy packed into the script. The extension reads the same file from `main` when its `version` is higher.
+v0.3.0 reads the same file. A dialog page and a plaintext resource query are checked when the ASP.NET AJAX build is missing from the main page. Handler-specific ranges stay outside when that handler is a 404. The popup shows CISA KEV and the EPSS snapshot date in the definition file.
 
 Chrome or Edge. On the extensions page, turn on developer mode, choose Load unpacked, and select the `extension/` folder. Open the app, then click the icon. The read uses that tab's session. Reload the unpacked extension for v0.2.0. After that, a higher `version` in `definitions.json` updates the ranges without another reload. The popup line shows the number and whether it came from the repo, a saved copy, or the copy packed in the extension.
 

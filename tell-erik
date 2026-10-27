@@ -12,6 +12,7 @@ Python 3.9+. Standard library only.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -71,7 +72,11 @@ EMBEDDED_ADVISORIES = r"""
         "floor": null,
         "ceiling": null,
         "fixed": "2017.2.621",
-        "detail": "Builds before 2017.2.621. Confirm the key in use separately."
+        "detail": "Builds before 2017.2.621. Confirm the key in use separately.",
+        "kev": true,
+        "requiresHandler": "dialog",
+        "epss": 0.75098,
+        "product": "aspnet-ajax"
     },
     {
         "id": "CVE-2019-18935",
@@ -79,7 +84,11 @@ EMBEDDED_ADVISORIES = r"""
         "floor": null,
         "ceiling": "2019.3.1023",
         "fixed": "2020.1.114",
-        "detail": "Through 2019.3.1023. 2020.1.114 blocks the default path. Known encryption material changes the picture."
+        "detail": "Through 2019.3.1023. 2020.1.114 blocks the default path. Known encryption material changes the picture.",
+        "kev": true,
+        "requiresHandler": "rau",
+        "epss": 0.99737,
+        "product": "aspnet-ajax"
     },
     {
         "id": "CVE-2025-3600",
@@ -87,7 +96,9 @@ EMBEDDED_ADVISORIES = r"""
         "floor": "2011.2.712",
         "ceiling": "2025.1.218",
         "fixed": "2025.1.416",
-        "detail": "2011.2.712 through 2025.1.218. Fixed in 2025.1.416."
+        "detail": "2011.2.712 through 2025.1.218. Fixed in 2025.1.416.",
+        "epss": 0.26268,
+        "product": "aspnet-ajax"
     },
     {
         "id": "CVE-2026-13181",
@@ -95,7 +106,10 @@ EMBEDDED_ADVISORIES = r"""
         "floor": "2010.1.309",
         "ceiling": "2026.2.519",
         "fixed": "2026.2.708",
-        "detail": "Through 2026.2.519. Fixed in 2026.2.708. Requires a non-default encryption key."
+        "detail": "Through 2026.2.519. Fixed in 2026.2.708. Requires a non-default encryption key.",
+        "requiresHandler": "rau",
+        "epss": 0.00732,
+        "product": "aspnet-ajax"
     },
     {
         "id": "CVE-2026-18672",
@@ -103,7 +117,10 @@ EMBEDDED_ADVISORIES = r"""
         "floor": "2011.2.712",
         "ceiling": "2026.2.708",
         "fixed": "2026.3.812",
-        "detail": "2011.2.712 through 2026.2.708 inclusive. Fixed in 2026.3.812. Requires a static machineKey or dialog key."
+        "detail": "2011.2.712 through 2026.2.708 inclusive. Fixed in 2026.3.812. Requires a static machineKey or dialog key.",
+        "requiresHandler": "iec",
+        "epss": 0.00503,
+        "product": "aspnet-ajax"
     },
     {
         "id": "CVE-2026-106149",
@@ -112,7 +129,8 @@ EMBEDDED_ADVISORIES = r"""
         "floor": "2011.2.804",
         "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 5.4. Menu dataSource attributes, from 2011.2.804. Fixed in 2026.3.1015."
+        "detail": "Kendo UI for jQuery. CVSS 5.4. Menu dataSource attributes, from 2011.2.804. Fixed in 2026.3.1015.",
+        "epss": 0.00178
     },
     {
         "id": "CVE-2026-106148",
@@ -121,7 +139,8 @@ EMBEDDED_ADVISORIES = r"""
         "floor": "2011.2.804",
         "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 5.4. Vendor table starts at 2011.2.804. Fixed in 2026.3.1015. The earliest build was not confirmed."
+        "detail": "Kendo UI for jQuery. CVSS 5.4. Vendor table starts at 2011.2.804. Fixed in 2026.3.1015. The earliest build was not confirmed.",
+        "epss": 0.00178
     },
     {
         "id": "CVE-2026-106150",
@@ -130,7 +149,8 @@ EMBEDDED_ADVISORIES = r"""
         "floor": "2011.2.804",
         "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 5.4. Splitter and Window from 2011.2.804. Tooltip from 2013.1.319. Fixed in 2026.3.1015."
+        "detail": "Kendo UI for jQuery. CVSS 5.4. Splitter and Window from 2011.2.804. Tooltip from 2013.1.319. Fixed in 2026.3.1015.",
+        "epss": 0.00162
     },
     {
         "id": "CVE-2026-106153",
@@ -139,7 +159,8 @@ EMBEDDED_ADVISORIES = r"""
         "floor": "2011.3.1007",
         "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. Calendar and MultiViewCalendar from 2011.3.1007. Fixed in 2026.3.1015."
+        "detail": "Kendo UI for jQuery. Calendar and MultiViewCalendar from 2011.3.1007. Fixed in 2026.3.1015.",
+        "epss": 0.00178
     },
     {
         "id": "CVE-2026-106151",
@@ -148,7 +169,8 @@ EMBEDDED_ADVISORIES = r"""
         "floor": "2012.2.710",
         "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 5.4. From 2012.2.710. Fixed in 2026.3.1015."
+        "detail": "Kendo UI for jQuery. CVSS 5.4. From 2012.2.710. Fixed in 2026.3.1015.",
+        "epss": 0.00178
     },
     {
         "id": "CVE-2026-106158",
@@ -157,7 +179,8 @@ EMBEDDED_ADVISORIES = r"""
         "floor": "2014.3.1119",
         "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 4.7. From 2014.3.1119. Fixed in 2026.3.1015."
+        "detail": "Kendo UI for jQuery. CVSS 4.7. From 2014.3.1119. Fixed in 2026.3.1015.",
+        "epss": 0.00168
     },
     {
         "id": "CVE-2026-106157",
@@ -166,7 +189,8 @@ EMBEDDED_ADVISORIES = r"""
         "floor": "2019.2.514",
         "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 4.7. From 2019.2.514. Fixed in 2026.3.1015."
+        "detail": "Kendo UI for jQuery. CVSS 4.7. From 2019.2.514. Fixed in 2026.3.1015.",
+        "epss": 0.00168
     },
     {
         "id": "CVE-2026-106147",
@@ -175,7 +199,8 @@ EMBEDDED_ADVISORIES = r"""
         "floor": "2020.1.114",
         "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 5.4. From 2020.1.114. Fixed in 2026.3.1015."
+        "detail": "Kendo UI for jQuery. CVSS 5.4. From 2020.1.114. Fixed in 2026.3.1015.",
+        "epss": 0.00178
     },
     {
         "id": "CVE-2026-106161",
@@ -184,7 +209,8 @@ EMBEDDED_ADVISORIES = r"""
         "floor": "2020.1.114",
         "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 5.4. From 2020.1.114. Fixed in 2026.3.1015."
+        "detail": "Kendo UI for jQuery. CVSS 5.4. From 2020.1.114. Fixed in 2026.3.1015.",
+        "epss": 0.00178
     },
     {
         "id": "CVE-2025-6725",
@@ -193,7 +219,8 @@ EMBEDDED_ADVISORIES = r"""
         "floor": "2024.4.1112",
         "ceiling": "2025.2.520",
         "fixed": "2025.2.702",
-        "detail": "Kendo UI for jQuery. CVSS 5.4. 2024.4.1112 through 2025.2.520. Fixed in 2025.2.702."
+        "detail": "Kendo UI for jQuery. CVSS 5.4. 2024.4.1112 through 2025.2.520. Fixed in 2025.2.702.",
+        "epss": 0.00266
     },
     {
         "id": "CVE-2026-106163",
@@ -202,7 +229,8 @@ EMBEDDED_ADVISORIES = r"""
         "floor": "2023.1.117",
         "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 6.5. From 2023.1.117. Fixed in 2026.3.1015."
+        "detail": "Kendo UI for jQuery. CVSS 6.5. From 2023.1.117. Fixed in 2026.3.1015.",
+        "epss": 0.00181
     },
     {
         "id": "CVE-2026-106160",
@@ -211,7 +239,8 @@ EMBEDDED_ADVISORIES = r"""
         "floor": "2023.1.117",
         "ceiling": null,
         "fixed": "2026.3.1015",
-        "detail": "Kendo UI for jQuery. CVSS 5.4. Vendor lists 2023.1.117 as the start. Fixed in 2026.3.1015."
+        "detail": "Kendo UI for jQuery. CVSS 5.4. Vendor lists 2023.1.117 as the start. Fixed in 2026.3.1015.",
+        "epss": 0.00192
     },
     {
         "id": "CVE-2017-11357",
@@ -222,7 +251,9 @@ EMBEDDED_ADVISORIES = r"""
         "fixed": "2017.2.711",
         "cvss": 9.8,
         "kev": true,
-        "detail": "CVSS 9.8. CISA KEV, added 2023-01-26. Before R2 2017 SP2 (2017.2.711)."
+        "detail": "CVSS 9.8. CISA KEV, added 2023-01-26. Before R2 2017 SP2 (2017.2.711).",
+        "requiresHandler": "rau",
+        "epss": 0.77679
     },
     {
         "id": "CVE-2017-11317",
@@ -232,8 +263,10 @@ EMBEDDED_ADVISORIES = r"""
         "ceiling": null,
         "fixed": "2017.2.711",
         "cvss": 9.8,
-        "kev": false,
-        "detail": "CVSS 9.8. Before R2 2017 SP2 (2017.2.711). Weak RadAsyncUpload encryption."
+        "kev": true,
+        "detail": "CVSS 9.8. Before R2 2017 SP2 (2017.2.711). Weak RadAsyncUpload encryption.",
+        "requiresHandler": "rau",
+        "epss": 0.84175
     },
     {
         "id": "CVE-2019-19790",
@@ -245,7 +278,8 @@ EMBEDDED_ADVISORIES = r"""
         "requiresHandler": "chart",
         "cvss": 9.8,
         "kev": false,
-        "detail": "CVSS 9.8. Every RadChart build. The component was discontinued in 2014. Remove ChartImage.axd."
+        "detail": "CVSS 9.8. Every RadChart build. The component was discontinued in 2014. Remove ChartImage.axd.",
+        "epss": 0.02991
     },
     {
         "id": "CVE-2026-6023",
@@ -256,7 +290,8 @@ EMBEDDED_ADVISORIES = r"""
         "fixed": "2026.1.421",
         "cvss": 8.1,
         "kev": false,
-        "detail": "CVSS 8.1. RadFilter only. 2024.4.1114 through 2026.1.225. Fixed in 2026.1.421."
+        "detail": "CVSS 8.1. RadFilter only. 2024.4.1114 through 2026.1.225. Fixed in 2026.1.421.",
+        "epss": 0.0054
     },
     {
         "id": "CVE-2026-13182",
@@ -267,7 +302,9 @@ EMBEDDED_ADVISORIES = r"""
         "fixed": "2026.2.708",
         "cvss": 7.5,
         "kev": false,
-        "detail": "CVSS 7.5. July 2026 bulletin. RadAsyncUpload from 2010.1.309 through 2026.2.519. Fixed in 2026.2.708."
+        "detail": "CVSS 7.5. July 2026 bulletin. RadAsyncUpload from 2010.1.309 through 2026.2.519. Fixed in 2026.2.708.",
+        "requiresHandler": "rau",
+        "epss": 0.00498
     },
     {
         "id": "CVE-2026-13183",
@@ -278,7 +315,9 @@ EMBEDDED_ADVISORIES = r"""
         "fixed": "2026.2.708",
         "cvss": 7.5,
         "kev": false,
-        "detail": "CVSS 7.5. July 2026 bulletin. RadAsyncUpload from 2010.1.309 through 2026.2.519. Fixed in 2026.2.708."
+        "detail": "CVSS 7.5. July 2026 bulletin. RadAsyncUpload from 2010.1.309 through 2026.2.519. Fixed in 2026.2.708.",
+        "requiresHandler": "rau",
+        "epss": 0.00498
     },
     {
         "id": "CVE-2026-13184",
@@ -289,7 +328,9 @@ EMBEDDED_ADVISORIES = r"""
         "fixed": "2026.2.708",
         "cvss": 7.5,
         "kev": false,
-        "detail": "CVSS 7.5. July 2026 bulletin. RadAsyncUpload from 2010.1.309 through 2026.2.519. Fixed in 2026.2.708."
+        "detail": "CVSS 7.5. July 2026 bulletin. RadAsyncUpload from 2010.1.309 through 2026.2.519. Fixed in 2026.2.708.",
+        "requiresHandler": "rau",
+        "epss": 0.00306
     },
     {
         "id": "CVE-2026-13185",
@@ -300,7 +341,8 @@ EMBEDDED_ADVISORIES = r"""
         "fixed": "2026.2.708",
         "cvss": 8.1,
         "kev": false,
-        "detail": "CVSS 8.1. RadPersistenceManager or RadDockLayout cookie storage. 2013.1.220 through 2026.2.519. Fixed in 2026.2.708."
+        "detail": "CVSS 8.1. RadPersistenceManager or RadDockLayout cookie storage. 2013.1.220 through 2026.2.519. Fixed in 2026.2.708.",
+        "epss": 0.00667
     },
     {
         "id": "CVE-2026-13186",
@@ -311,7 +353,8 @@ EMBEDDED_ADVISORIES = r"""
         "fixed": "2026.2.708",
         "cvss": 8.1,
         "kev": false,
-        "detail": "CVSS 8.1. File-based persistence provider. Vendor bulletin starts at 2013.1.220. Fixed in 2026.2.708."
+        "detail": "CVSS 8.1. File-based persistence provider. Vendor bulletin starts at 2013.1.220. Fixed in 2026.2.708.",
+        "epss": 0.00732
     },
     {
         "id": "CVE-2026-13187",
@@ -322,7 +365,9 @@ EMBEDDED_ADVISORIES = r"""
         "fixed": "2026.2.708",
         "cvss": 8.1,
         "kev": false,
-        "detail": "CVSS 8.1. Dialog provider type. Fixed in 2026.2.708."
+        "detail": "CVSS 8.1. Dialog provider type. Fixed in 2026.2.708.",
+        "requiresHandler": "dialog",
+        "epss": 0.00341
     },
     {
         "id": "CVE-2026-13188",
@@ -333,18 +378,21 @@ EMBEDDED_ADVISORIES = r"""
         "fixed": "2026.2.708",
         "cvss": 5.9,
         "kev": false,
-        "detail": "CVSS 5.9. Dialog parameter tampering. Fixed in 2026.2.708."
+        "detail": "CVSS 5.9. Dialog parameter tampering. Fixed in 2026.2.708.",
+        "requiresHandler": "dialog",
+        "epss": 0.00156
     },
     {
         "id": "CVE-2026-13190",
         "title": "PersistenceFramework unsafe type resolution",
         "product": "aspnet-ajax",
-        "floor": "2013.1.220",
+        "floor": "2011.2.712",
         "ceiling": "2026.2.519",
         "fixed": "2026.2.708",
         "cvss": 8.1,
         "kev": false,
-        "detail": "CVSS 8.1. RadPersistenceManager. 2013.1.220 through 2026.2.519. Fixed in 2026.2.708."
+        "detail": "CVSS 8.1. PersistenceFramework. 2011.2.712 through 2026.2.519. Fixed in 2026.2.708.",
+        "epss": 0.00504
     },
     {
         "id": "CVE-2026-13192",
@@ -355,7 +403,9 @@ EMBEDDED_ADVISORIES = r"""
         "fixed": "2026.2.708",
         "cvss": 6.5,
         "kev": false,
-        "detail": "CVSS 6.5. RadEditor PDF export. Fixed in 2026.2.708."
+        "detail": "CVSS 6.5. RadEditor PDF export. Fixed in 2026.2.708.",
+        "requiresHandler": "dialog",
+        "epss": 0.00419
     },
     {
         "id": "CVE-2026-14865",
@@ -366,7 +416,8 @@ EMBEDDED_ADVISORIES = r"""
         "fixed": "2026.2.708",
         "cvss": 5.3,
         "kev": false,
-        "detail": "CVSS 5.3. LayoutBuilder. Fixed in 2026.2.708."
+        "detail": "CVSS 5.3. LayoutBuilder. Fixed in 2026.2.708.",
+        "epss": 0.00432
     },
     {
         "id": "CVE-2026-14932",
@@ -378,7 +429,8 @@ EMBEDDED_ADVISORIES = r"""
         "requiresHandler": "chart",
         "cvss": 6.5,
         "kev": false,
-        "detail": "CVSS 6.5. Obsolete RadChart. ChartImage.axd. Fixed in 2026.2.708."
+        "detail": "CVSS 6.5. Obsolete RadChart. ChartImage.axd. Fixed in 2026.2.708.",
+        "epss": 0.00353
     },
     {
         "id": "CVE-2026-19219",
@@ -389,7 +441,9 @@ EMBEDDED_ADVISORIES = r"""
         "fixed": "2026.3.812",
         "cvss": 8.1,
         "kev": false,
-        "detail": "CVSS 8.1. RadEditor file browser. 2011.2.712 through 2026.2.708. Fixed in 2026.3.812. Requires exposed key material."
+        "detail": "CVSS 8.1. RadEditor file browser. 2011.2.712 through 2026.2.708. Fixed in 2026.3.812. Requires exposed key material.",
+        "requiresHandler": "dialog",
+        "epss": 0.00209
     },
     {
         "id": "CVE-2026-106159",
@@ -400,7 +454,8 @@ EMBEDDED_ADVISORIES = r"""
         "fixed": "2026.3.1015",
         "cvss": 4.7,
         "kev": false,
-        "detail": "Kendo UI for jQuery. CVSS 4.7. From 2022.3.1109. Fixed in 2026.3.1015."
+        "detail": "Kendo UI for jQuery. CVSS 4.7. From 2022.3.1109. Fixed in 2026.3.1015.",
+        "epss": 0.00168
     },
     {
         "id": "CVE-2026-106162",
@@ -411,7 +466,8 @@ EMBEDDED_ADVISORIES = r"""
         "fixed": "2026.3.1015",
         "cvss": 4.7,
         "kev": false,
-        "detail": "Kendo UI for jQuery. CVSS 4.7. From 2023.3.1010. Fixed in 2026.3.1015."
+        "detail": "Kendo UI for jQuery. CVSS 4.7. From 2023.3.1010. Fixed in 2026.3.1015.",
+        "epss": 0.00138
     },
     {
         "id": "CVE-2020-11022",
@@ -423,7 +479,8 @@ EMBEDDED_ADVISORIES = r"""
         "fixed": "3.5.0",
         "cvss": 6.1,
         "kev": false,
-        "detail": "jQuery. CVSS 6.1. 1.2.0 through 3.4.1. Fixed in 3.5.0."
+        "detail": "jQuery. CVSS 6.1. 1.2.0 through 3.4.1. Fixed in 3.5.0.",
+        "epss": 0.99215
     },
     {
         "id": "CVE-2020-11023",
@@ -434,8 +491,9 @@ EMBEDDED_ADVISORIES = r"""
         "ceiling": "3.4.1",
         "fixed": "3.5.0",
         "cvss": 6.1,
-        "kev": false,
-        "detail": "jQuery. CVSS 6.1. 1.0.3 through 3.4.1. Fixed in 3.5.0."
+        "kev": true,
+        "detail": "jQuery. CVSS 6.1. 1.0.3 through 3.4.1. Fixed in 3.5.0.",
+        "epss": 0.84887
     },
     {
         "id": "CVE-2019-11358",
@@ -447,7 +505,8 @@ EMBEDDED_ADVISORIES = r"""
         "fixed": "3.4.0",
         "cvss": 6.1,
         "kev": false,
-        "detail": "jQuery. CVSS 6.1. Before 3.4.0."
+        "detail": "jQuery. CVSS 6.1. Before 3.4.0.",
+        "epss": 0.8682
     },
     {
         "id": "CVE-2024-4200",
@@ -459,7 +518,99 @@ EMBEDDED_ADVISORIES = r"""
         "fixed": "18.1.24.514",
         "cvss": null,
         "kev": false,
-        "detail": "Telerik Reporting. Before 18.1.24.514 (2024 Q2). A replaced localization asset."
+        "detail": "Telerik Reporting. Before 18.1.24.514 (2024 Q2). A replaced localization asset.",
+        "epss": 0.00295
+    },
+    {
+        "id": "CVE-2014-2217",
+        "title": "RadAsyncUpload path traversal",
+        "product": "aspnet-ajax",
+        "floor": null,
+        "ceiling": null,
+        "fixed": "2012.3.1308",
+        "requiresHandler": "rau",
+        "cvss": 7.5,
+        "kev": false,
+        "detail": "CVSS 7.5. Before Q3 2012 SP2 (2012.3.1308).",
+        "epss": 0.04194
+    },
+    {
+        "id": "CVE-2026-6022",
+        "title": "RadAsyncUpload size limit bypass",
+        "product": "aspnet-ajax",
+        "floor": null,
+        "ceiling": null,
+        "fixed": "2026.1.421",
+        "requiresHandler": "rau",
+        "cvss": 7.5,
+        "kev": false,
+        "detail": "CVSS 7.5. Uploads can pass the configured maximum size. Fixed in 2026.1.421.",
+        "epss": 0.00288
+    },
+    {
+        "id": "CVE-2026-2878",
+        "title": "RadAsyncUpload predictable temporary id",
+        "product": "aspnet-ajax",
+        "floor": null,
+        "ceiling": null,
+        "fixed": "2026.1.225",
+        "requiresHandler": "rau",
+        "cvss": 5.9,
+        "kev": false,
+        "detail": "CVSS 5.9. Predictable temporary upload id. Fixed in 2026.1.225.",
+        "epss": 0.00211
+    },
+    {
+        "id": "CVE-2021-41182",
+        "title": "jQuery UI datepicker altField",
+        "product": "jquery-ui",
+        "scheme": "dotted",
+        "floor": null,
+        "ceiling": null,
+        "fixed": "1.13.0",
+        "cvss": 6.5,
+        "kev": false,
+        "detail": "jQuery UI. CVSS 6.5. Before 1.13.0.",
+        "epss": 0.39361
+    },
+    {
+        "id": "CVE-2021-41183",
+        "title": "jQuery UI datepicker text options",
+        "product": "jquery-ui",
+        "scheme": "dotted",
+        "floor": null,
+        "ceiling": null,
+        "fixed": "1.13.0",
+        "cvss": 6.5,
+        "kev": false,
+        "detail": "jQuery UI. CVSS 6.5. Before 1.13.0.",
+        "epss": 0.08533
+    },
+    {
+        "id": "CVE-2021-41184",
+        "title": "jQuery UI position selector",
+        "product": "jquery-ui",
+        "scheme": "dotted",
+        "floor": null,
+        "ceiling": null,
+        "fixed": "1.13.0",
+        "cvss": 6.5,
+        "kev": false,
+        "detail": "jQuery UI. CVSS 6.5. Before 1.13.0.",
+        "epss": 0.40768
+    },
+    {
+        "id": "CVE-2024-4358",
+        "title": "Report Server authentication bypass",
+        "product": "report-server",
+        "scheme": "dotted",
+        "floor": null,
+        "ceiling": "10.0.24.305",
+        "fixed": "10.1.24.514",
+        "cvss": 9.8,
+        "kev": true,
+        "detail": "Telerik Report Server. CVSS 9.8. CISA KEV, added 2024-06-13. Through 10.0.24.305. Fixed in 10.1.24.514.",
+        "epss": 0.97482
     }
 ]
 """
@@ -478,11 +629,14 @@ KENDO_CDN_RE = re.compile(
     re.I,
 )
 ASSEMBLY_RE = re.compile(
-    r"Telerik\.(Web\.UI|Reporting)(?:%2[cC]|,)(?:\+|%20|\s)*Version(?:=|%3[dD])(\d+\.\d+\.\d+(?:\.\d+)?)",
+    r"Telerik\.(Web\.UI|Reporting|ReportServer(?:\.Web)?)(?:%2[cC]|,)(?:\+|%20|\s)*Version(?:=|%3[dD])(\d+\.\d+\.\d+(?:\.\d+)?)",
     re.I,
 )
 KENDO_BANNER_RE = re.compile(r"Kendo UI(?:\s+\w+){0,3}?\s+v(20\d{2}\.[1-4]\.\d{3,4})", re.I)
 KENDO_ASSIGN_RE = re.compile(r"""kendo\.version\s*=\s*["'](20\d{2}\.[1-4]\.\d{3,4})""", re.I)
+JQUERY_ASSIGN_RE = re.compile(r"""(?:jQuery\.)?fn\.jquery\s*=\s*["'](\d+\.\d+\.\d+)""", re.I)
+JQUERY_UI_ASSIGN_RE = re.compile(r"""(?:jQuery|\$)\.ui\.version\s*=\s*["'](\d+\.\d+\.\d+)""", re.I)
+RESOURCE_PARAM_RE = re.compile(r"""(?:\?|&)(?:amp;)?(?:d|_TSM_CombinedScripts_)=([^&"'<\s]{16,4000})""", re.I)
 REF_RE = re.compile(
     r"""(?:src|href)\s*=\s*["']([^"']*(?:Telerik\.Web\.UI\.WebResource\.axd|Telerik\.Web\.UI\.DialogHandler\.aspx)[^"']*)["']""",
     re.I,
@@ -552,13 +706,45 @@ def extract_versions(body: str, source: str) -> List[dict]:
         push(match.group(1), "kendo", "kendo-cdn", match.group(0))
     for match in ASSEMBLY_RE.finditer(body):
         kind = match.group(1).lower()
-        product = "aspnet-ajax" if kind.startswith("web.ui") else "reporting"
+        if kind.startswith("web.ui"):
+            product = "aspnet-ajax"
+        elif kind.startswith("reportserver"):
+            product = "report-server"
+        else:
+            product = "reporting"
         method = "resource-query" if "%" in match.group(0) else "assembly"
         push(match.group(2), product, method, match.group(0))
     for match in KENDO_BANNER_RE.finditer(body):
         push(match.group(1), "kendo", "script-banner", match.group(0))
     for match in KENDO_ASSIGN_RE.finditer(body):
         push(match.group(1), "kendo", "script-banner", match.group(0))
+    for match in JQUERY_ASSIGN_RE.finditer(body):
+        push(match.group(1), "jquery", "script-banner", match.group(0))
+    for match in JQUERY_UI_ASSIGN_RE.finditer(body):
+        push(match.group(1), "jquery-ui", "script-banner", match.group(0))
+    for match in RESOURCE_PARAM_RE.finditer(body):
+        raw = match.group(1)
+        try:
+            cleaned = urllib.parse.unquote(raw).replace("-", "+").replace("_", "/")
+        except Exception:
+            continue
+        if not re.fullmatch(r"[A-Za-z0-9+/=]+", cleaned):
+            continue
+        try:
+            decoded = base64.b64decode(cleaned, validate=False).decode("utf-8")
+        except Exception:
+            continue
+        if re.search(r"[^\t\n\r\x20-\x7e]", decoded[:240]):
+            continue
+        for inner in ASSEMBLY_RE.finditer(decoded):
+            kind = inner.group(1).lower()
+            if kind.startswith("web.ui"):
+                product = "aspnet-ajax"
+            elif kind.startswith("reportserver"):
+                product = "report-server"
+            else:
+                product = "reporting"
+            push(inner.group(2), product, "resource-query", inner.group(0))
     return hits
 
 
@@ -999,7 +1185,7 @@ def compare_advisory(advisory: dict, version: str, bound: Optional[str]) -> int:
 
 
 def assess_version(version: Optional[str], product: Optional[str], handlers: Optional[Sequence[dict]] = None) -> List[dict]:
-    if not version or product not in ("aspnet-ajax", "kendo", "jquery", "reporting"):
+    if not version or product not in ("aspnet-ajax", "kendo", "jquery", "jquery-ui", "reporting", "report-server"):
         return []
     rows = []
     for advisory in ADVISORIES:
@@ -1007,11 +1193,9 @@ def assess_version(version: Optional[str], product: Optional[str], handlers: Opt
             continue
         status = "in-range"
         detail = advisory["detail"]
-        if advisory.get("requiresHandler"):
-            handler = next((row for row in (handlers or []) if row.get("id") == advisory["requiresHandler"]), None)
-            if handler is None:
-                status = "unplaced"
-            elif handler.get("state") != "present":
+        if advisory.get("requiresHandler") and handlers is not None:
+            handler = next((row for row in handlers if row.get("id") == advisory["requiresHandler"]), None)
+            if handler and handler.get("state") == "absent":
                 status = "outside"
                 detail = "%s %s did not answer." % (detail, handler.get("name") or advisory["requiresHandler"])
         if status == "in-range":
@@ -1030,6 +1214,7 @@ def assess_version(version: Optional[str], product: Optional[str], handlers: Opt
                 "status": status,
                 "detail": detail,
                 "kev": bool(advisory.get("kev")),
+                "epss": advisory.get("epss"),
             }
         )
     order = {"in-range": 0, "transitional": 1, "unplaced": 2, "outside": 3, "above-fix": 4}
@@ -1037,11 +1222,33 @@ def assess_version(version: Optional[str], product: Optional[str], handlers: Opt
     return rows
 
 
-def unplaced_advisories(product: str) -> List[dict]:
-    library = "Kendo UI for jQuery" if product == "kendo" else "Telerik UI for ASP.NET AJAX"
+def unplaced_advisories(product: str, handlers: Optional[Sequence[dict]] = None) -> List[dict]:
+    labels = {
+        "kendo": "Kendo UI for jQuery",
+        "jquery": "jQuery",
+        "jquery-ui": "jQuery UI",
+        "reporting": "Telerik Reporting",
+        "report-server": "Telerik Report Server",
+    }
+    library = labels.get(product, "Telerik UI for ASP.NET AJAX")
     rows = []
     for advisory in ADVISORIES:
         if advisory.get("product", "aspnet-ajax") != product:
+            continue
+        handler = None
+        if advisory.get("requiresHandler") and handlers is not None:
+            handler = next((row for row in handlers if row.get("id") == advisory["requiresHandler"]), None)
+        if handler and handler.get("state") == "absent":
+            rows.append(
+                {
+                    "id": advisory["id"],
+                    "title": advisory["title"],
+                    "status": "outside",
+                    "detail": "%s %s did not answer." % (advisory["detail"], handler.get("name") or advisory["requiresHandler"]),
+                    "kev": bool(advisory.get("kev")),
+                    "epss": advisory.get("epss"),
+                }
+            )
             continue
         rows.append(
             {
@@ -1049,6 +1256,8 @@ def unplaced_advisories(product: str) -> List[dict]:
                 "title": advisory["title"],
                 "status": "unplaced",
                 "detail": "%s. Build not read. %s" % (library, advisory["detail"]),
+                "kev": bool(advisory.get("kev")),
+                "epss": advisory.get("epss"),
             }
         )
     return rows
@@ -1450,6 +1659,13 @@ def scan_one(args, url: str) -> dict:
                 handlers.append(
                     {"id": handler_id, "name": name, "url": got.final_url, "status": got.status, "state": state, "detail": detail}
                 )
+        if rest_base and not any(hit["product"] == "aspnet-ajax" for hit in versions):
+            page_text = page.body
+            if re.search(r"Telerik|Rad[A-Z]|WebResource\.axd", page_text):
+                probe = urllib.parse.urljoin(rest_base, "Telerik.Web.UI.DialogHandler.aspx?DialogName=DocumentManager")
+                got = fetch_same_origin(opener, probe, "GET", None, headers, jar, locked, timeout)
+                requests.append({"url": probe, "status": got.status, "purpose": "dialog-document"})
+                versions.extend(extract_versions(got.body, got.final_url))
         chosen = prefer_handlers(handlers)
         headline = apply_presence(build_headline(versions, verdicts), signals, chosen)
         notes.extend(build_notes(headline, chosen, signals))
@@ -1472,7 +1688,7 @@ def scan_one(args, url: str) -> dict:
         ajax_known = any(hit["product"] == "aspnet-ajax" for hit in versions)
         ajax_handlers = any(row["id"] in ("rau", "dialog") and row["state"] == "present" for row in chosen)
         if not ajax_known and ajax_handlers and (not compared or compared["product"] != "aspnet-ajax"):
-            advisories.extend(unplaced_advisories("aspnet-ajax"))
+            advisories.extend(unplaced_advisories("aspnet-ajax", chosen))
         order = {"in-range": 0, "transitional": 1, "unplaced": 2, "outside": 3, "above-fix": 4}
         advisories.sort(key=lambda row: order.get(row["status"], 9))
         elapsed = int((time.time() - started) * 1000)
@@ -1667,6 +1883,28 @@ def self_test() -> int:
     jquery = {row["id"]: row["status"] for row in assess_version("3.4.1", "jquery")}
     if jquery.get("CVE-2020-11022") != "in-range" or jquery.get("CVE-2019-11358") != "above-fix":
         print("self-test failed: jquery %s" % jquery, file=sys.stderr)
+        return 1
+    if not any(row["id"] == "CVE-2019-18935" and row["kev"] for row in assess_version("2016.2.504", "aspnet-ajax")):
+        print("self-test failed: 18935 kev", file=sys.stderr)
+        return 1
+    old = {row["id"]: row["status"] for row in assess_version("2012.2.607", "aspnet-ajax")}
+    if old.get("CVE-2014-2217") != "in-range":
+        print("self-test failed: 2217 %s" % old.get("CVE-2014-2217"), file=sys.stderr)
+        return 1
+    ui = {row["id"]: row["status"] for row in assess_version("1.12.1", "jquery-ui")}
+    if ui.get("CVE-2021-41182") != "in-range":
+        print("self-test failed: jquery-ui %s" % ui, file=sys.stderr)
+        return 1
+    server = {row["id"]: row["status"] for row in assess_version("10.0.24.305", "report-server")}
+    if server.get("CVE-2024-4358") != "in-range":
+        print("self-test failed: report server %s" % server, file=sys.stderr)
+        return 1
+    encoded = extract_versions(
+        "x?d=" + __import__("base64").b64encode(b"Telerik.Web.UI, Version=2016.2.504.45, Culture=neutral").decode(),
+        "https://app.example/",
+    )
+    if not any(hit["version"] == "2016.2.504.45" and hit["method"] == "resource-query" for hit in encoded):
+        print("self-test failed: resource %s" % encoded, file=sys.stderr)
         return 1
     try:
         check_url("http://169.254.169.254/latest", False)

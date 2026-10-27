@@ -5,9 +5,12 @@ const LINK_RE = /<link\b[^>]*>/gi;
 const AJAX_PATH_RE = /\/ajaxz?\/(20\d{2}\.[1-4]\.\d{3,4})(?:\.\d{2,4})?\//i;
 const KENDO_CDN_RE = /https?:\/\/(?:kendo\.cdn\.telerik\.com|cdn\.kendostatic\.com)\/(20\d{2}\.[1-4]\.\d{3,4})\//gi;
 const ASSEMBLY_RE =
-  /Telerik\.(Web\.UI|Reporting)(?:%2[cC]|,)(?:\+|%20|\s)*Version(?:=|%3[dD])(\d+\.\d+\.\d+(?:\.\d+)?)/gi;
+  /Telerik\.(Web\.UI|Reporting|ReportServer(?:\.Web)?)(?:%2[cC]|,)(?:\+|%20|\s)*Version(?:=|%3[dD])(\d+\.\d+\.\d+(?:\.\d+)?)/gi;
 const KENDO_BANNER_RE = /Kendo UI(?:\s+\w+){0,3}?\s+v(20\d{2}\.[1-4]\.\d{3,4})/gi;
 const KENDO_ASSIGN_RE = /kendo\.version\s*=\s*["'](20\d{2}\.[1-4]\.\d{3,4})/gi;
+const JQUERY_ASSIGN_RE = /(?:jQuery\.)?fn\.jquery\s*=\s*["'](\d+\.\d+\.\d+)/gi;
+const JQUERY_UI_ASSIGN_RE = /(?:jQuery|\$)\.ui\.version\s*=\s*["'](\d+\.\d+\.\d+)/gi;
+const RESOURCE_PARAM_RE = /(?:\?|&)(?:amp;)?(?:d|_TSM_CombinedScripts_)=([^&"'<\s]{16,4000})/gi;
 const ATTR_URL_RE = /(?:src|href)\s*=\s*["']([^"']+)["']/gi;
 const AJAX_ASSET_RE = /\/ajaxz?\/(20\d{2}\.[1-4]\.\d{3,4})(?:\.\d{2,4})?\//i;
 const KENDO_ASSET_RE = /^\/(20\d{2}\.[1-4]\.\d{3,4})\//i;
@@ -26,6 +29,9 @@ export const PRODUCT_LABEL = {
   "aspnet-ajax": "Telerik UI for ASP.NET AJAX",
   kendo: "Kendo UI",
   reporting: "Telerik Reporting",
+  jquery: "jQuery",
+  "jquery-ui": "jQuery UI",
+  "report-server": "Telerik Report Server",
 };
 
 export const METHOD_LABEL = {
@@ -87,7 +93,8 @@ function normalizeDefinitions(doc) {
   for (const row of doc.advisories) {
     if (!row || typeof row.id !== "string") continue;
     if (row.fixed != null && typeof row.fixed !== "string") continue;
-    if (row.product !== "aspnet-ajax" && row.product !== "kendo" && row.product !== "reporting" && row.product !== "jquery") continue;
+    if (!row.product) row = { ...row, product: "aspnet-ajax" };
+    if (row.product !== "aspnet-ajax" && row.product !== "kendo" && row.product !== "reporting" && row.product !== "jquery" && row.product !== "jquery-ui" && row.product !== "report-server") continue;
     if (!row.fixed && !row.requiresHandler) continue;
     nextAdvisories.push({
       id: String(row.id).slice(0, 40),
@@ -99,6 +106,7 @@ function normalizeDefinitions(doc) {
       fixed: row.fixed ? String(row.fixed).slice(0, 32) : null,
       requiresHandler: row.requiresHandler ? String(row.requiresHandler).slice(0, 32) : null,
       kev: Boolean(row.kev),
+      epss: typeof row.epss === "number" ? row.epss : null,
       detail: String(row.detail || "").slice(0, 400),
     });
   }
@@ -109,6 +117,7 @@ function normalizeDefinitions(doc) {
     advisories: nextAdvisories,
     handlers: nextHandlers,
     probes: nextHandlers.map((row) => ({ id: row.id, name: row.name, path: row.path })),
+    epssDate: typeof doc.epssDate === "string" ? doc.epssDate.slice(0, 10) : "",
   };
 }
 
@@ -119,7 +128,7 @@ export function applyDefinitions(doc) {
   advisories = accepted.advisories;
   handlerRules = accepted.handlers;
   probes = accepted.probes;
-  definitionMeta = { version: accepted.version, source: definitionMeta.source || "bundled" };
+  definitionMeta = { version: accepted.version, source: definitionMeta.source || "bundled", epssDate: accepted.epssDate || "" };
   return true;
 }
 
@@ -128,7 +137,7 @@ export function setDefinitionSource(source) {
 }
 
 export function currentDefinitions() {
-  return { version: definitionMeta.version, source: definitionMeta.source, handlers: probes };
+  return { version: definitionMeta.version, source: definitionMeta.source, epssDate: definitionMeta.epssDate || "", handlers: probes };
 }
 
 applyDefinitions(bundledDefinitions);
@@ -164,6 +173,27 @@ function compareProduct(left, right) {
   return 0;
 }
 
+function decodeResource(value) {
+  let cleaned = value;
+  try { cleaned = decodeURIComponent(value); } catch { return ""; }
+  cleaned = cleaned.replace(/-/g, "+").replace(/_/g, "/");
+  if (!/^[A-Za-z0-9+/=]+$/.test(cleaned)) return "";
+  try {
+    const text = atob(cleaned);
+    if (/[^\t\n\r\x20-\x7e]/.test(text.slice(0, 240))) return "";
+    return text;
+  } catch {
+    return "";
+  }
+}
+
+function productForAssembly(kind) {
+  const name = String(kind || "").toLowerCase();
+  if (name.startsWith("web.ui")) return "aspnet-ajax";
+  if (name.startsWith("reportserver")) return "report-server";
+  return "reporting";
+}
+
 function clip(value, limit = 160) {
   const flat = String(value || "").replace(/\s+/g, " ").trim();
   if (flat.length <= limit) return flat;
@@ -195,11 +225,10 @@ export function extractVersions(body, source) {
     if (match[1]) pushHit(hits, { version: match[1], product: "kendo", method: "kendo-cdn", source, evidence: clip(match[0]) });
   }
   for (const match of text.matchAll(ASSEMBLY_RE)) {
-    const kind = (match[1] || "").toLowerCase();
     if (!match[2]) continue;
     pushHit(hits, {
       version: match[2],
-      product: kind.startsWith("web.ui") ? "aspnet-ajax" : "reporting",
+      product: productForAssembly(match[1]),
       method: match[0].includes("%") ? "resource-query" : "assembly",
       source,
       evidence: clip(match[0]),
@@ -210,6 +239,26 @@ export function extractVersions(body, source) {
   }
   for (const match of text.matchAll(KENDO_ASSIGN_RE)) {
     if (match[1]) pushHit(hits, { version: match[1], product: "kendo", method: "script-banner", source, evidence: clip(match[0]) });
+  }
+  for (const match of text.matchAll(JQUERY_ASSIGN_RE)) {
+    if (match[1]) pushHit(hits, { version: match[1], product: "jquery", method: "script-banner", source, evidence: clip(match[0]) });
+  }
+  for (const match of text.matchAll(JQUERY_UI_ASSIGN_RE)) {
+    if (match[1]) pushHit(hits, { version: match[1], product: "jquery-ui", method: "script-banner", source, evidence: clip(match[0]) });
+  }
+  for (const match of text.matchAll(RESOURCE_PARAM_RE)) {
+    const decoded = decodeResource(match[1] || "");
+    if (!decoded) continue;
+    for (const inner of decoded.matchAll(ASSEMBLY_RE)) {
+      if (!inner[2]) continue;
+      pushHit(hits, {
+        version: inner[2],
+        product: productForAssembly(inner[1]),
+        method: "resource-query",
+        source,
+        evidence: clip(inner[0]),
+      });
+    }
   }
   return hits;
 }
@@ -316,7 +365,11 @@ export function markupSignals(body) {
   if (/Telerik\.Web\.UI\.DialogHandler\.aspx/i.test(text)) signals.push("Page references DialogHandler.aspx.");
   if (/Telerik_stylesheet/i.test(text)) signals.push("Page emits Telerik_stylesheet links.");
   if (/RadScriptManager/i.test(text)) signals.push("Page includes RadScriptManager.");
-  if (/kendo\.cdn\.telerik\.com|cdn\.kendostatic\.com/i.test(text)) signals.push("Page references a Kendo CDN host.");
+  if (/@progress\/kendo-react|kendo-react-/i.test(text)) signals.push("Page references Kendo UI for React.");
+  if (/@progress\/kendo-angular|kendo-angular-/i.test(text)) signals.push("Page references Kendo UI for Angular.");
+  if (/@progress\/kendo-vue|kendo-vue-/i.test(text)) signals.push("Page references Kendo UI for Vue.");
+  if (/TelerikBlazor|telerik-blazor/i.test(text)) signals.push("Page references Telerik UI for Blazor.");
+  if (/Telerik\.ReportServer/i.test(text)) signals.push("Page references Telerik Report Server.");
   return signals;
 }
 
@@ -456,16 +509,15 @@ function compareAdvisory(advisory, version, bound) {
 }
 
 export function assessVersion(version, product, handlers) {
-  if (!version || (product !== "aspnet-ajax" && product !== "kendo" && product !== "jquery" && product !== "reporting")) return [];
+  if (!version || !["aspnet-ajax", "kendo", "jquery", "jquery-ui", "reporting", "report-server"].includes(product)) return [];
   const order = { "in-range": 0, transitional: 1, unplaced: 2, outside: 3, "above-fix": 4 };
   return advisories.filter((advisory) => (advisory.product || "aspnet-ajax") === product)
     .map((advisory) => {
       let status = "in-range";
       let detail = advisory.detail;
-      if (advisory.requiresHandler) {
-        const handler = (handlers || []).find((row) => row.id === advisory.requiresHandler);
-        if (!handler) status = "unplaced";
-        else if (handler.state !== "present") {
+      if (advisory.requiresHandler && handlers) {
+        const handler = handlers.find((row) => row.id === advisory.requiresHandler);
+        if (handler?.state === "absent") {
           status = "outside";
           detail = `${detail} ${handler.name} did not answer.`;
         }
@@ -476,19 +528,27 @@ export function assessVersion(version, product, handlers) {
         else if (advisory.ceiling && compareAdvisory(advisory, version, advisory.ceiling) <= 0) status = "in-range";
         else if (advisory.ceiling && compareAdvisory(advisory, version, advisory.ceiling) > 0) status = "transitional";
       }
-      return { id: advisory.id, title: advisory.title, status, detail, kev: advisory.kev };
+      return { id: advisory.id, title: advisory.title, status, detail, kev: advisory.kev, epss: advisory.epss };
     })
     .sort((left, right) => order[left.status] - order[right.status]);
 }
 
-export function unplacedAdvisories(product) {
-  const library = product === "kendo" ? "Kendo UI for jQuery" : "Telerik UI for ASP.NET AJAX";
-  return advisories.filter((advisory) => (advisory.product || "aspnet-ajax") === product).map((advisory) => ({
-    id: advisory.id,
-    title: advisory.title,
-    status: "unplaced",
-    detail: `${library}. Build not read. ${advisory.detail}`,
-  }));
+export function unplacedAdvisories(product, handlers) {
+  const library = PRODUCT_LABEL[product] || product;
+  return advisories.filter((advisory) => (advisory.product || "aspnet-ajax") === product).map((advisory) => {
+    const handler = advisory.requiresHandler && handlers ? handlers.find((row) => row.id === advisory.requiresHandler) : null;
+    if (handler?.state === "absent") {
+      return { id: advisory.id, title: advisory.title, status: "outside", detail: `${advisory.detail} ${handler.name} did not answer.`, kev: advisory.kev, epss: advisory.epss };
+    }
+    return {
+      id: advisory.id,
+      title: advisory.title,
+      status: "unplaced",
+      detail: `${library}. Build not read. ${advisory.detail}`,
+      kev: advisory.kev,
+      epss: advisory.epss,
+    };
+  });
 }
 
 export function buildNotes(headline, handlers, signals) {
@@ -535,6 +595,7 @@ export function summarize(payload) {
   const versions = [
     ...extractVersions(payload.html || "", pageUrl),
     ...extractVersions(payload.liveHtml || "", `${pageUrl}#document`),
+    ...extractVersions((payload.handlers || []).map((row) => row.body || "").join("\n"), `${pageUrl}#handler`),
     ...fileBannerHits(verdicts),
   ];
   if (payload.kendoVersion && /^20\d{2}\.[1-4]\.\d{3,4}/.test(payload.kendoVersion)) {
@@ -553,6 +614,15 @@ export function summarize(payload) {
       method: "script-banner",
       source: pageUrl,
       evidence: "jQuery.fn.jquery",
+    });
+  }
+  if (payload.jqueryUiVersion && /^\d+\.\d+\.\d+/.test(payload.jqueryUiVersion)) {
+    versions.push({
+      version: payload.jqueryUiVersion,
+      product: "jquery-ui",
+      method: "script-banner",
+      source: pageUrl,
+      evidence: "jQuery.ui.version",
     });
   }
   const signals = markupSignals(`${payload.html || ""}\n${payload.liveHtml || ""}`);
@@ -584,7 +654,7 @@ export function summarize(payload) {
   for (const hit of best.values()) advisories.push(...assessVersion(hit.version, hit.product, handlers));
   const ajaxKnown = versions.some((hit) => hit.product === "aspnet-ajax");
   const ajaxHandlers = handlers.some((row) => (row.id === "rau" || row.id === "dialog") && row.state === "present");
-  if (!ajaxKnown && ajaxHandlers && compared?.product !== "aspnet-ajax") advisories.push(...unplacedAdvisories("aspnet-ajax"));
+  if (!ajaxKnown && ajaxHandlers && compared?.product !== "aspnet-ajax") advisories.push(...unplacedAdvisories("aspnet-ajax", handlers));
   advisories.sort((left, right) => ({ "in-range": 0, transitional: 1, unplaced: 2, outside: 3, "above-fix": 4 })[left.status] - ({ "in-range": 0, transitional: 1, unplaced: 2, outside: 3, "above-fix": 4 })[right.status]);
   const notes = buildNotes(headline, handlers, signals);
   if (payload.login) {

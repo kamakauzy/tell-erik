@@ -167,6 +167,11 @@ globalThis.__tellErikCollect = async function tellErikCollect(handlerDefs) {
       const got = await grab(probe);
       rows.push({ id: handler[0], name: handler[1], ...got });
     }
+    const seenAjax = /<!--\s*20\d{2}\.[1-4]\.\d{3,4}/.test(`${html}\n${liveHtml}`) || /Telerik\.Web\.UI(?:%2[cC]|,)(?:\+|%20|\s)*Version=/i.test(`${html}\n${liveHtml}`);
+    if (!seenAjax && /Telerik|Rad[A-Z]|WebResource\.axd/i.test(`${html}\n${liveHtml}`)) {
+      const dialog = await grab(new URL("Telerik.Web.UI.DialogHandler.aspx?DialogName=DocumentManager", restBase).href);
+      if (dialog.body) liveHtml += `\n${dialog.body.slice(0, 200000)}`;
+    }
   }
 
   return {

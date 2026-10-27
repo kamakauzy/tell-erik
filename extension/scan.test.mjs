@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import bundledDefinitions from "./definitions.json" with { type: "json" };
 import { applyDefinitions, assessVersion, assetTargets, buildHeadline, classifyHandler, confirmAsset, currentDefinitions, extractVersions, summarize } from "./scan.js";
 
 const PAGE = `<!doctype html><html><head>
@@ -74,6 +75,14 @@ test("places 2026.3.812 at or above the tracked fixed builds", () => {
   assert.equal(kev?.status, "in-range");
   assert.equal(kev?.kev, true);
   assert.equal(assessVersion("3.4.1", "jquery").find((row) => row.id === "CVE-2020-11022")?.status, "in-range");
+  assert.equal(assessVersion("2016.2.504", "aspnet-ajax").find((row) => row.id === "CVE-2019-18935")?.kev, true);
+  assert.equal(assessVersion("1.12.1", "jquery-ui").find((row) => row.id === "CVE-2021-41182")?.status, "in-range");
+  assert.equal(assessVersion("10.0.24.305", "report-server").find((row) => row.id === "CVE-2024-4358")?.status, "in-range");
+  const encoded = extractVersions(
+    `x?d=${Buffer.from("Telerik.Web.UI, Version=2016.2.504.45, Culture=neutral").toString("base64")}`,
+    "https://app.example/",
+  );
+  assert.equal(encoded.find((hit) => hit.method === "resource-query")?.version, "2016.2.504.45");
 });
 
 test("summarizes a page payload and a live kendo.version", () => {
@@ -106,9 +115,5 @@ test("a higher definition version replaces the packed catalog", () => {
   assert.equal(currentDefinitions().version, packed + 1);
   assert.equal(assessVersion("2020.2.617", "kendo")[0].id, "CVE-2099-1");
   assert.equal(classifyHandler("rau", 200, "registered succesfully.").detail, "Matched the pushed fingerprint.");
-  applyDefinitions({
-    version: packed + 2,
-    advisories: [{ id: "CVE-2017-9248", title: "DialogHandler cryptographic weakness", product: "aspnet-ajax", floor: null, ceiling: null, fixed: "2017.2.621", detail: "Builds before 2017.2.621. Confirm the key in use separately." }],
-    handlers: [{ id: "rau", name: "RadAsyncUpload", path: "Telerik.Web.UI.WebResource.axd?type=rau", present: "RadAsyncUpload handler is registered succes+fully", detail: "Registration message, including the vendor spelling." }],
-  });
+  applyDefinitions({ ...bundledDefinitions, version: packed + 3 });
 });

@@ -44,7 +44,7 @@ function render(result) {
     const table = el("div", "rows");
     for (const row of result.advisories) {
       const line = el("div", "row");
-      line.append(el("span", "mono", row.id), el("span", `status ${row.status}`, `${row.kev ? "KEV · " : ""}${STATUS_LABEL[row.status] || row.status}`));
+      line.append(el("span", "mono", row.id), el("span", `status ${row.status}`, `${row.kev ? "KEV · " : ""}${STATUS_LABEL[row.status] || row.status}${typeof row.epss === "number" ? ` · EPSS ${(row.epss * 100).toFixed(1)}%` : ""}`));
       const detail = el("p", "detail");
       detail.append(el("span", "fg", `${row.title}. `), document.createTextNode(row.detail));
       line.append(detail);
@@ -115,7 +115,7 @@ async function loadDefinitions() {
   }
   setDefinitionSource(source);
   const current = currentDefinitions();
-  if (defsLine) defsLine.textContent = `definitions ${current.version} · ${current.source}`;
+  if (defsLine) defsLine.textContent = `definitions ${current.version} · ${current.source}${current.epssDate ? ` · EPSS ${current.epssDate}` : ""}`;
   return current;
 }
 
@@ -161,11 +161,12 @@ async function readRuntime(tabId) {
       func: () => ({
         kendo: globalThis.kendo && typeof globalThis.kendo.version === "string" ? globalThis.kendo.version : "",
         jquery: globalThis.jQuery && globalThis.jQuery.fn && typeof globalThis.jQuery.fn.jquery === "string" ? globalThis.jQuery.fn.jquery : "",
+        jqueryUi: globalThis.jQuery && globalThis.jQuery.ui && typeof globalThis.jQuery.ui.version === "string" ? globalThis.jQuery.ui.version : "",
       }),
     });
-    return got?.result || { kendo: "", jquery: "" };
+    return got?.result || { kendo: "", jquery: "", jqueryUi: "" };
   } catch {
-    return { kendo: "", jquery: "" };
+    return { kendo: "", jquery: "", jqueryUi: "" };
   }
 }
 
@@ -205,7 +206,7 @@ async function scan() {
       return;
     }
     const assets = await readAssets(`${payload.html || ""}\n${payload.liveHtml || ""}`, payload.pageUrl || tab.url);
-    render(summarize({ ...payload, kendoVersion: runtime.kendo, jqueryVersion: runtime.jquery, assets }));
+    render(summarize({ ...payload, kendoVersion: runtime.kendo, jqueryVersion: runtime.jquery, jqueryUiVersion: runtime.jqueryUi, assets }));
   } catch (error) {
     const message = error && error.message ? error.message : "The read failed.";
     showError(
