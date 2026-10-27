@@ -1669,7 +1669,6 @@ def scan_one(args, url: str) -> dict:
         chosen = prefer_handlers(handlers)
         headline = apply_presence(build_headline(versions, verdicts), signals, chosen)
         notes.extend(build_notes(headline, chosen, signals))
-        advisories = []
         best = {}
         for hit in versions:
             confirmed = any(
@@ -1682,9 +1681,15 @@ def scan_one(args, url: str) -> dict:
             current = best.get(hit["product"])
             if current is None or METHOD_RANK.get(hit["method"], 9) < METHOD_RANK.get(current["method"], 9):
                 best[hit["product"]] = hit
+        advisories = []
         for hit in best.values():
-            advisories.extend(assess_version(hit["version"], hit["product"], chosen))
-        advisories = [row for row in advisories if row["status"] == "in-range"]
+            for row in assess_version(hit["version"], hit["product"], chosen):
+                if row["status"] != "in-range":
+                    continue
+                stamped = dict(row)
+                stamped["product"] = hit["product"]
+                stamped["version"] = hit["version"]
+                advisories.append(stamped)
         elapsed = int((time.time() - started) * 1000)
         return {
             "ok": True,
@@ -1770,8 +1775,13 @@ def render_text(result: dict) -> str:
     for row in result.get("handlers") or []:
         lines.append("  %-18s %-8s %s  %s" % (row["name"], row["state"], row["status"], row["detail"]))
     if result.get("advisories"):
-        lines.append("published ranges: %s" % (headline.get("basis") or ""))
+        lines.append("published ranges:")
+        seen = None
         for row in result["advisories"]:
+            label = "%s %s" % (row.get("product") or "", row.get("version") or "")
+            if label != seen:
+                seen = label
+                lines.append("  %s" % label.strip())
             lines.append("  %-16s %-13s %s" % (row["id"], row["status"], row["title"]))
     if result.get("notes"):
         lines.append("notes:")

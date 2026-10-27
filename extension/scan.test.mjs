@@ -124,7 +124,7 @@ test("lists only ranges that include the build that was read", () => {
     handlers: [],
   });
   assert.ok(kendo.advisories.length > 0);
-  assert.ok(kendo.advisories.every((row) => row.status === "in-range"));
+  assert.ok(kendo.advisories.every((row) => row.status === "in-range" && row.product === "kendo" && row.version === "2020.2.617"));
   assert.ok(kendo.advisories.every((row) => !row.id.startsWith("CVE-2017") && !row.id.startsWith("CVE-2019-18935")));
 });
 

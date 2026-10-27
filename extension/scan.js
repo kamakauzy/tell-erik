@@ -649,9 +649,13 @@ export function summarize(payload) {
     const current = best.get(hit.product);
     if (!current || (METHOD_RANK[hit.method] ?? 9) < (METHOD_RANK[current.method] ?? 9)) best.set(hit.product, hit);
   }
-  const advisories = [];
-  for (const hit of best.values()) advisories.push(...assessVersion(hit.version, hit.product, handlers));
-  const applicable = advisories.filter((row) => row.status === "in-range");
+  const applicable = [];
+  for (const hit of best.values()) {
+    for (const row of assessVersion(hit.version, hit.product, handlers)) {
+      if (row.status !== "in-range") continue;
+      applicable.push({ ...row, product: hit.product, version: hit.version });
+    }
+  }
   const notes = buildNotes(headline, handlers, signals);
   if (payload.login) {
     const suite = signals.length > 0;

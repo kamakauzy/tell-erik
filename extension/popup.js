@@ -40,17 +40,28 @@ function render(result) {
 
   if (result.advisories.length) {
     const block = el("section", "card");
-    block.append(el("h2", "heading", "Published ranges"), el("p", "summary", headline.basis));
-    const table = el("div", "rows");
+    block.append(el("h2", "heading", "Published ranges"));
+    const groups = new Map();
     for (const row of result.advisories) {
-      const line = el("div", "row");
-      line.append(el("span", "mono", row.id), el("span", `status ${row.status}`, `${row.kev ? "KEV · " : ""}${STATUS_LABEL[row.status] || row.status}${typeof row.epss === "number" ? ` · EPSS ${(row.epss * 100).toFixed(1)}%` : ""}`));
-      const detail = el("p", "detail");
-      detail.append(el("span", "fg", `${row.title}. `), document.createTextNode(row.detail));
-      line.append(detail);
-      table.append(line);
+      const key = `${row.product || ""}|${row.version || ""}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(row);
     }
-    block.append(table);
+    for (const rows of groups.values()) {
+      const first = rows[0];
+      const name = PRODUCT_LABEL[first.product] || first.product || "Component";
+      block.append(el("p", "summary", `${name} ${first.version || ""}`.trim()));
+      const table = el("div", "rows");
+      for (const row of rows) {
+        const line = el("div", "row");
+        line.append(el("span", "mono", row.id), el("span", `status ${row.status}`, `${row.kev ? "KEV · " : ""}${STATUS_LABEL[row.status] || row.status}${typeof row.epss === "number" ? ` · EPSS ${(row.epss * 100).toFixed(1)}%` : ""}`));
+        const detail = el("p", "detail");
+        detail.append(el("span", "fg", `${row.title}. `), document.createTextNode(row.detail));
+        line.append(detail);
+        table.append(line);
+      }
+      block.append(table);
+    }
     out.append(block);
   }
 
